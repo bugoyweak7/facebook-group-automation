@@ -1,0 +1,84 @@
+{
+  "manifest_version": 3,
+  "name": "AI Group Poster",
+  "version": "1.0.0",
+  "description": "Human-in-the-loop Facebook Group posting queue assistant with AI caption generation and clipboard workflow tools.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "tabs",
+    "notifications",
+    "scripting",
+    "activeTab",
+    "clipboardWrite",
+    "clipboardRead"
+  ],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://facebook.com/*",
+    "https://*.facebook.com/*",
+    "https://facebook.com/*",
+    "*://*.fb.com/*",
+    "*://fb.com/*"
+  ],
+  "action": {
+    "default_popup": "src/pages/popup/index.html",
+    "default_title": "AI Group Poster",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "src/pages/options/index.html",
+    "open_in_tab": true
+  },
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://facebook.com/*"
+      ],
+      "js": [
+        "facebook-content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://facebook.com/*"
+      ],
+      "js": [
+        "prevent-beforeunload.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icons/*",
+        "assets/*"
+      ],
+      "matches": [
+        "*://*.facebook.com/*",
+        "*://facebook.com/*"
+      ]
+    }
+  ]
+}
