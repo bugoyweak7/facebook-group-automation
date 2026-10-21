@@ -621,7 +621,7 @@ describe('Facebook Joined Groups Sync System — 13 Mandatory Test Cases', () =>
       expect(previousAccountGroups.map(g => g.groupId)).toEqual(['a1', 'a2']);
 
       // Never mixed
-      expect(activeGroups.some(g => g.groupId.startsWith('a'))).toBe(false);
+      expect(activeGroups.some(g => g.groupId?.startsWith('a'))).toBe(false);
     });
   });
 });

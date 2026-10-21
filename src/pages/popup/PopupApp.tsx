@@ -16,6 +16,10 @@ import {
   getSettings,
   updateSettings,
   getFacebookAccount,
+  getAutoJoinState,
+  setAutoJoinState,
+  getAutoJoinConfig,
+  setAutoJoinConfig,
 } from '../../services/storage/chrome-storage';
 import {
   createQueueItems,
@@ -26,6 +30,7 @@ import {
 } from '../../services/queue/queue-engine';
 
 import { getDiscoveryProgress } from '../../services/facebook/discovery-manager';
+import { AutoJoinConfig, AutoJoinState, INITIAL_AUTO_JOIN_STATE, DEFAULT_AUTO_JOIN_CONFIG } from '../../types/auto-joiner';
 import {
   Play,
   Pause,
@@ -50,6 +55,7 @@ import {
   StopCircle,
   Trash2,
   Clock,
+  Zap,
 } from 'lucide-react';
 import { validateFacebookGroupUrl } from '../../utils/validators';
 import { generateId } from '../../utils/helpers';
@@ -66,7 +72,7 @@ import {
 export const PopupApp: React.FC = () => {
   // Navigation views: 'select-groups' | 'compose' | 'posting-queue'
   const [view, setView] = useState<'select-groups' | 'compose' | 'posting-queue'>('select-groups');
-  const [activeTab, setActiveTab] = useState<'my-groups' | 'import-links'>('my-groups');
+  const [activeTab, setActiveTab] = useState<'my-groups' | 'auto-join' | 'import-links'>('my-groups');
   const [account, setAccount] = useState<FacebookAccountInfo | null>(null);
   const [groups, setGroupsState] = useState<Group[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -88,6 +94,15 @@ export const PopupApp: React.FC = () => {
   const [selectedIdsOrder, setSelectedIdsOrder] = useState<string[]>([]);
   const [importText, setImportText] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Auto-Joiner State
+  const [autoJoinState, setAutoJoinStateObj] = useState<AutoJoinState>(INITIAL_AUTO_JOIN_STATE);
+  const [autoJoinUrl, setAutoJoinUrl] = useState('');
+  const [autoJoinDelaySec, setAutoJoinDelaySec] = useState<number>(0);
+  const [autoJoinMaxGroups, setAutoJoinMaxGroups] = useState<number>(0);
+  const [autoJoinQuestions, setAutoJoinQuestions] = useState<boolean>(true);
+  const [autoJoinCategory, setAutoJoinCategory] = useState<string>('Auto Joined');
+  const [isStartingAutoJoin, setIsStartingAutoJoin] = useState(false);
 
   // Composer State
   const [caption, setCaption] = useState('');
@@ -215,13 +230,15 @@ export const PopupApp: React.FC = () => {
 
   // Load storage state
   const loadData = useCallback(async () => {
-    const [acc, g, p, q, qs, dp] = await Promise.all([
+    const [acc, g, p, q, qs, dp, ajState, ajConfig] = await Promise.all([
       getFacebookAccount(),
       getGroups(),
       getPosts(),
       getQueue(),
       getQueueState(),
       getDiscoveryProgress(),
+      getAutoJoinState(),
+      getAutoJoinConfig(),
     ]);
 
     // Prune any invalid groups or personal user profiles
@@ -246,6 +263,13 @@ export const PopupApp: React.FC = () => {
     setDiscoveryProgress(dp);
     setIsDiscovering(dp.state === 'DISCOVERING');
 
+    if (ajState) {
+      setAutoJoinStateObj(ajState);
+    }
+    if (ajConfig?.searchUrl && !autoJoinUrl) {
+      setAutoJoinUrl(ajConfig.searchUrl);
+    }
+
     // Initialize selected IDs from stored selected state if empty
     setSelectedIdsOrder(prev => {
       if (prev.length === 0) {
@@ -253,7 +277,7 @@ export const PopupApp: React.FC = () => {
       }
       return prev.filter(id => cleanedGroups.some(item => item.id === id));
     });
-  }, []);
+  }, [autoJoinUrl]);
 
   const handleDeleteGroup = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -263,6 +287,84 @@ export const PopupApp: React.FC = () => {
     showToast('Removed from list');
   };
 
+  const handleStartAutoJoin = async () => {
+    if (!autoJoinUrl.trim()) {
+      showToast('Please enter a Facebook search link or keyword');
+      return;
+    }
+
+    setIsStartingAutoJoin(true);
+    const config: AutoJoinConfig = {
+      searchUrl: autoJoinUrl.trim(),
+      delaySec: autoJoinDelaySec,
+      maxGroups: autoJoinMaxGroups,
+      autoAnswerQuestions: autoJoinQuestions,
+      defaultAnswer: 'Yes, I agree to the group rules and guidelines.',
+      saveToGroups: true,
+      selectedCategory: autoJoinCategory.trim() || 'Auto Joined',
+    };
+
+    try {
+      await setAutoJoinConfig(config);
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            type: 'START_AUTO_JOIN',
+            payload: config,
+          },
+          (res) => {
+            setIsStartingAutoJoin(false);
+            if (chrome.runtime.lastError) {
+              showToast('Error: ' + chrome.runtime.lastError.message);
+            } else {
+              showToast('Auto-Join started! Opening Facebook search...');
+            }
+          }
+        );
+      } else {
+        setIsStartingAutoJoin(false);
+        showToast('Auto-Join triggered');
+      }
+    } catch (e: any) {
+      setIsStartingAutoJoin(false);
+      showToast('Error: ' + (e?.message || String(e)));
+    }
+  };
+
+  const handlePauseAutoJoin = () => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'PAUSE_AUTO_JOIN' });
+    }
+    setAutoJoinStateObj(prev => ({ ...prev, status: 'PAUSED' }));
+  };
+
+  const handleResumeAutoJoin = () => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'RESUME_AUTO_JOIN' });
+    }
+    setAutoJoinStateObj(prev => ({ ...prev, status: 'JOINING' }));
+  };
+
+  const handleStopAutoJoin = () => {
+    if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+      chrome.runtime.sendMessage({ type: 'STOP_AUTO_JOIN' });
+    }
+    setAutoJoinStateObj(prev => ({ ...prev, status: 'STOPPED' }));
+    showToast('Auto-join stopped');
+  };
+
+  const focusFacebookTab = async () => {
+    if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+      const tabs = await chrome.tabs.query({ url: ['*://*.facebook.com/*', '*://facebook.com/*'] });
+      const target = tabs.find(t => t.url && t.url.includes('/search')) || tabs[0];
+      if (target?.id) {
+        await chrome.tabs.update(target.id, { active: true });
+        if (target.windowId) {
+          try { await chrome.windows.update(target.windowId, { focused: true }); } catch (_) {}
+        }
+      }
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -295,6 +397,12 @@ export const PopupApp: React.FC = () => {
               foundCount: verifiedCount || prev.foundCount,
             }));
             loadData();
+          } else if (message?.type === 'AUTO_JOIN_PROGRESS') {
+            if (message.payload) {
+              setAutoJoinStateObj(message.payload);
+            }
+          } else if (message?.type === 'AUTO_JOIN_SAVE_GROUPS') {
+            loadData();
           }
         };
         chrome.runtime.onMessage.addListener(messageListener);
@@ -316,10 +424,10 @@ export const PopupApp: React.FC = () => {
     }
 
     return () => {
-      if (storageListener && chrome?.storage?.onChanged) {
+      if (storageListener && typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
         chrome.storage.onChanged.removeListener(storageListener);
       }
-      if (messageListener && chrome?.runtime?.onMessage) {
+      if (messageListener && typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
         chrome.runtime.onMessage.removeListener(messageListener);
       }
     };
@@ -552,18 +660,18 @@ export const PopupApp: React.FC = () => {
     }
     setIsPolishingAi(true);
     try {
-      const generated = await aiService.generateCaptions({
+      const result = await aiService.generateCaption({
+        productName: title || 'Product',
         productDetails: caption || title,
+        currentCaption: caption,
         style: 'Sales',
         language: 'Bangla',
-        includeEmojis: true,
-        includeHashtags: true,
       });
-      if (generated && generated.length > 0) {
-        setCaption(generated[0]);
+      if (result && result.success && result.content) {
+        setCaption(result.content);
         showToast('Caption polished with AI!');
       } else {
-        showToast('Could not polish caption');
+        showToast(result?.error || 'Could not polish caption');
       }
     } catch {
       showToast('AI polish error');
@@ -786,7 +894,8 @@ export const PopupApp: React.FC = () => {
         name: activeItem.groupName || queueState.expectedGroupName || 'Facebook Group',
         url: activeItem.groupUrl || queueState.expectedGroupUrl || `https://www.facebook.com/groups/${activeItem.groupId}/`,
         privacy: 'PUBLIC' as const,
-        memberCount: 0,
+        enabled: true,
+        status: 'READY' as const,
         postCount: 0,
         createdAt: 0,
         updatedAt: 0,
@@ -866,6 +975,21 @@ export const PopupApp: React.FC = () => {
             >
               <Users size={14} />
               <span>My Groups</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('auto-join')}
+              className={`flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-1.5 border-b-2 transition-all ${
+                activeTab === 'auto-join'
+                  ? 'border-emerald-600 text-emerald-600 dark:border-emerald-500 dark:text-emerald-400'
+                  : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
+              }`}
+            >
+              <Zap size={14} className={autoJoinState.status === 'JOINING' ? 'text-emerald-500 animate-bounce' : ''} />
+              <span>Auto-Join</span>
+              {autoJoinState.status === 'JOINING' && (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+              )}
             </button>
 
             <button
@@ -1066,7 +1190,226 @@ export const PopupApp: React.FC = () => {
             </div>
           )}
 
-          {/* Tab 2: Import Links Content */}
+          {/* Tab 2: Auto-Join Groups Content */}
+          {activeTab === 'auto-join' && (
+            <div className="p-4 flex-1 overflow-y-auto space-y-3">
+              {/* Header Info */}
+              <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 border border-emerald-200/80 dark:border-emerald-800/50 rounded-xl space-y-1">
+                <div className="flex items-center gap-2 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
+                  <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] shadow-sm">
+                    ⚡
+                  </div>
+                  <span>Facebook Search & Auto-Joiner</span>
+                </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                  ফেসবুক গ্রুপ সার্চ লিংক দিন — সরাসরি চোখের সামনে প্রতিটা গ্রুপে জয়েন করবে ও লিস্টে সেভ করবে যাতে পরবর্তীতে পোস্ট করতে পারেন।
+                </p>
+              </div>
+
+              {/* Search URL / Keyword Input */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                  <span>Facebook Group Search Link or Keyword</span>
+                  {autoJoinUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setAutoJoinUrl('')}
+                      className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={autoJoinUrl}
+                    onChange={e => setAutoJoinUrl(e.target.value)}
+                    placeholder="https://www.facebook.com/search/groups/?q=shoes or keyword"
+                    className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-emerald-500 font-mono"
+                  />
+                </div>
+              </div>
+
+              {/* Quick Search Chips */}
+              <div className="space-y-1">
+                <div className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Quick Suggestions:</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { label: 'Buy & Sell', q: 'buy and sell' },
+                    { label: 'Marketplace', q: 'marketplace dhaka' },
+                    { label: 'Fashion / Clothes', q: 'clothing wholesale' },
+                    { label: 'Business / Freelance', q: 'freelancers bangladesh' },
+                  ].map(chip => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => setAutoJoinUrl(`https://www.facebook.com/search/groups/?q=${encodeURIComponent(chip.q)}`)}
+                      className="text-[10px] font-medium bg-slate-100 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-300 hover:text-emerald-700 dark:hover:text-emerald-300 px-2 py-1 rounded-md transition-colors border border-slate-200 dark:border-slate-700"
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Settings Configuration Card */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 rounded-xl space-y-2.5 text-xs">
+                {/* Delay & Max Groups Row */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                      Safe Delay Between Joins
+                    </label>
+                    <select
+                      value={autoJoinDelaySec}
+                      onChange={e => setAutoJoinDelaySec(Number(e.target.value))}
+                      className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500 font-medium"
+                    >
+                      <option value={0}>⚡ 0s (Zero Wait / সাথে সাথে)</option>
+                      <option value={1}>🚀 1s (Fast)</option>
+                      <option value={2}>⚡ 2s (Safe)</option>
+                      <option value={4}>🛡️ 4s (Normal)</option>
+                      <option value={6}>🔒 6s (Strict)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                      Max Groups Limit
+                    </label>
+                    <select
+                      value={autoJoinMaxGroups}
+                      onChange={e => setAutoJoinMaxGroups(Number(e.target.value))}
+                      className="w-full p-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-emerald-500"
+                    >
+                      <option value={0}>All Available (No Limit)</option>
+                      <option value={10}>10 Groups</option>
+                      <option value={20}>20 Groups</option>
+                      <option value={50}>50 Groups</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Auto-answer questions & agree to rules */}
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700 dark:text-slate-300 text-[11px] pt-1">
+                  <input
+                    type="checkbox"
+                    checked={autoJoinQuestions}
+                    onChange={e => setAutoJoinQuestions(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded text-emerald-600 border-slate-300 dark:border-slate-600 focus:ring-0"
+                  />
+                  <span>Auto-agree to group rules & answer questions</span>
+                </label>
+              </div>
+
+              {/* Live Status HUD Card (if Auto-Join is active) */}
+              {(autoJoinState.status === 'JOINING' || autoJoinState.status === 'SEARCHING' || autoJoinState.status === 'PAUSED') && (
+                <div className="p-3 bg-slate-900 text-white rounded-xl space-y-2 border border-emerald-500/30 shadow-md">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                      Auto-Join Active ({autoJoinState.status})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={focusFacebookTab}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 underline font-semibold flex items-center gap-1"
+                    >
+                      <span>View Tab</span>
+                      <ExternalLink size={10} />
+                    </button>
+                  </div>
+
+                  {/* 4-Stat Grid */}
+                  <div className="grid grid-cols-4 gap-1 text-center py-1 bg-slate-800/80 rounded-lg border border-slate-700/50">
+                    <div>
+                      <div className="text-sm font-black text-blue-400">{autoJoinState.totalFound}</div>
+                      <div className="text-[9px] text-slate-400 font-semibold uppercase">Found</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-black text-emerald-400">{autoJoinState.joinedCount}</div>
+                      <div className="text-[9px] text-slate-400 font-semibold uppercase">Joined</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-black text-amber-400">{autoJoinState.requestedCount}</div>
+                      <div className="text-[9px] text-slate-400 font-semibold uppercase">Pending</div>
+                    </div>
+                    <div>
+                      <div className="text-sm font-black text-purple-400">{autoJoinState.alreadyJoinedCount}</div>
+                      <div className="text-[9px] text-slate-400 font-semibold uppercase">Member</div>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-300 truncate">
+                    {autoJoinState.message || 'Processing groups...'}
+                  </div>
+
+                  {/* Pause / Resume / Stop Buttons */}
+                  <div className="flex items-center gap-2 pt-1">
+                    {autoJoinState.status === 'PAUSED' ? (
+                      <button
+                        type="button"
+                        onClick={handleResumeAutoJoin}
+                        className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Play size={12} />
+                        <span>Resume</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handlePauseAutoJoin}
+                        className="flex-1 py-1.5 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1"
+                      >
+                        <Pause size={12} />
+                        <span>Pause</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleStopAutoJoin}
+                      className="py-1.5 px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center justify-center gap-1"
+                    >
+                      <StopCircle size={12} />
+                      <span>Stop</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Main Action Button */}
+              <button
+                type="button"
+                onClick={handleStartAutoJoin}
+                disabled={isStartingAutoJoin}
+                className="w-full py-2.5 px-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl transition-all shadow-md active:scale-[0.99] flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                <Zap size={14} className={isStartingAutoJoin ? 'animate-spin' : ''} />
+                <span>
+                  {isStartingAutoJoin
+                    ? 'Launching Auto-Joiner...'
+                    : autoJoinState.status === 'JOINING'
+                    ? 'Restart Auto-Join on Search Link'
+                    : 'Start Auto-Joining in Facebook (ফেসবুকে অটো জয়েন করুন)'}
+                </span>
+              </button>
+
+              {/* Jump to My Groups */}
+              <div className="pt-1 text-center">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('my-groups')}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold"
+                >
+                  Go to My Groups to select & post ({groups.length} groups saved) →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 3: Import Links Content */}
           {activeTab === 'import-links' && (
             <div className="p-4 flex-1 overflow-y-auto space-y-2.5">
               <div className="text-[11px] text-slate-500 dark:text-slate-400">

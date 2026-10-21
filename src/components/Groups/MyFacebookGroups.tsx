@@ -24,6 +24,7 @@ import {
   Globe,
   ArrowRight,
   Sparkles,
+  Zap,
 } from 'lucide-react';
 import { validateFacebookGroupUrl, detectDuplicateGroup } from '../../utils/validators';
 import { generateId, formatDate, downloadFile } from '../../utils/helpers';
@@ -76,8 +77,17 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isSelectModalOpen, setIsSelectModalOpen] = useState(false);
+  const [isAutoJoinModalOpen, setIsAutoJoinModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
+
+  // Auto-Join Form state
+  const [autoJoinUrl, setAutoJoinUrl] = useState('');
+  const [autoJoinDelay, setAutoJoinDelay] = useState(0);
+  const [autoJoinMax, setAutoJoinMax] = useState(0);
+  const [autoJoinQuestions, setAutoJoinQuestions] = useState(true);
+  const [autoJoinCategory, setAutoJoinCategory] = useState('Auto Joined');
+  const [isLaunchingAutoJoin, setIsLaunchingAutoJoin] = useState(false);
 
   // Single Group Form state
   const [formName, setFormName] = useState('');
@@ -86,6 +96,51 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
   const [formPrivacy, setFormPrivacy] = useState<GroupPrivacy>('PUBLIC');
   const [formNotes, setFormNotes] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
+
+  const handleLaunchAutoJoin = () => {
+    if (!autoJoinUrl.trim()) {
+      toast.error('Please enter a Facebook group search URL or keyword');
+      return;
+    }
+
+    setIsLaunchingAutoJoin(true);
+    const config = {
+      searchUrl: autoJoinUrl.trim(),
+      delaySec: autoJoinDelay,
+      maxGroups: autoJoinMax,
+      autoAnswerQuestions: autoJoinQuestions,
+      defaultAnswer: 'Yes, I agree to the group rules and guidelines.',
+      saveToGroups: true,
+      selectedCategory: autoJoinCategory.trim() || 'Auto Joined',
+    };
+
+    try {
+      if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
+        chrome.runtime.sendMessage(
+          {
+            type: 'START_AUTO_JOIN',
+            payload: config,
+          },
+          () => {
+            setIsLaunchingAutoJoin(false);
+            setIsAutoJoinModalOpen(false);
+            if (chrome.runtime.lastError) {
+              toast.error('Failed to start auto-join: ' + chrome.runtime.lastError.message);
+            } else {
+              toast.success('Auto-Join initiated! Opened Facebook search page in tab.');
+            }
+          }
+        );
+      } else {
+        setIsLaunchingAutoJoin(false);
+        setIsAutoJoinModalOpen(false);
+        toast.info('Auto-Join triggered');
+      }
+    } catch (err: any) {
+      setIsLaunchingAutoJoin(false);
+      toast.error('Error: ' + (err?.message || String(err)));
+    }
+  };
 
   // CSV Import state
   const [csvFileContent, setCsvFileContent] = useState<string>('');
@@ -354,6 +409,16 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="primary"
+              size="lg"
+              icon={<Zap size={18} />}
+              onClick={() => setIsAutoJoinModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/25 font-bold px-5"
+            >
+              Search & Auto-Join
+            </Button>
+
             <Button
               variant="primary"
               size="lg"
@@ -997,6 +1062,146 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
         confirmLabel="Delete Group"
         isDestructive={true}
       />
+
+      {/* Facebook Group Search & Auto-Joiner Modal */}
+      <Modal
+        isOpen={isAutoJoinModalOpen}
+        onClose={() => setIsAutoJoinModalOpen(false)}
+        title="⚡ Facebook Group Search & Auto-Joiner"
+        maxWidth="lg"
+      >
+        <div className="space-y-4">
+          <div className="p-3 bg-gradient-to-r from-emerald-950/40 to-teal-950/30 border border-emerald-500/30 rounded-xl space-y-1">
+            <h4 className="text-xs font-bold text-emerald-300 flex items-center gap-1.5">
+              <span>ফেসবুক গ্রুপ সার্চ লিংক দিয়ে স্বয়ংক্রিয় জয়েন</span>
+            </h4>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              যেকোনো ফেসবুক গ্রুপ সার্চ লিংক অথবা কিওয়ার্ড দিন। এক্সটেনশন সরাসরি ফেসবুক সার্চ পেজ ওপেন করে আপনার চোখের সামনে প্রতিটা গ্রুপে জয়েন করবে ও লিস্টে সেভ করে দেবে যাতে পরবর্তীতে পোস্ট করতে পারেন।
+            </p>
+          </div>
+
+          {/* Search URL / Keyword */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-slate-300 block">
+              Facebook Group Search Link or Keyword <span className="text-rose-400">*</span>
+            </label>
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={autoJoinUrl}
+                onChange={e => setAutoJoinUrl(e.target.value)}
+                placeholder="https://www.facebook.com/search/groups/?q=shoes or 'buy and sell'"
+                className="w-full pl-9 pr-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500 font-mono"
+              />
+            </div>
+          </div>
+
+          {/* Quick Suggestions */}
+          <div className="space-y-1.5">
+            <div className="text-[11px] text-slate-400 font-semibold uppercase tracking-wider">Quick Suggestions:</div>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: 'Buy & Sell', q: 'buy and sell' },
+                { label: 'Marketplace Dhaka', q: 'marketplace dhaka' },
+                { label: 'Clothing Wholesale', q: 'clothing wholesale bangladesh' },
+                { label: 'Freelancers & IT', q: 'freelancers bangladesh' },
+                { label: 'Business Network', q: 'bangladesh entrepreneurs' },
+              ].map(chip => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  onClick={() => setAutoJoinUrl(`https://www.facebook.com/search/groups/?q=${encodeURIComponent(chip.q)}`)}
+                  className="text-xs font-medium bg-slate-800 hover:bg-emerald-950 text-slate-300 hover:text-emerald-300 px-2.5 py-1 rounded-md transition-colors border border-slate-700 hover:border-emerald-700"
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Options Grid */}
+          <div className="grid grid-cols-2 gap-3 p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+            <div>
+              <label className="text-xs font-bold text-slate-400 block mb-1">
+                Safe Delay Between Joins
+              </label>
+              <select
+                value={autoJoinDelay}
+                onChange={e => setAutoJoinDelay(Number(e.target.value))}
+                className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-emerald-500 font-medium"
+              >
+                <option value={0}>⚡ 0s (Zero Wait / সাথে সাথে)</option>
+                <option value={1}>🚀 1s (Fast)</option>
+                <option value={2}>⚡ 2s (Safe)</option>
+                <option value={4}>4s (Normal)</option>
+                <option value={6}>6s (Strict)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-slate-400 block mb-1">
+                Target Groups Limit
+              </label>
+              <select
+                value={autoJoinMax}
+                onChange={e => setAutoJoinMax(Number(e.target.value))}
+                className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+              >
+                <option value={0}>All Available (No Limit)</option>
+                <option value={10}>10 Groups</option>
+                <option value={20}>20 Groups</option>
+                <option value={50}>50 Groups</option>
+              </select>
+            </div>
+
+            <div className="col-span-2">
+              <label className="text-xs font-bold text-slate-400 block mb-1">
+                Save to Category
+              </label>
+              <input
+                type="text"
+                value={autoJoinCategory}
+                onChange={e => setAutoJoinCategory(e.target.value)}
+                placeholder="Auto Joined"
+                className="w-full p-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="col-span-2 pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-300 text-xs">
+                <input
+                  type="checkbox"
+                  checked={autoJoinQuestions}
+                  onChange={e => setAutoJoinQuestions(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 border-slate-700 focus:ring-0"
+                />
+                <span>Auto-agree to group rules & answer membership questionnaires</span>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => setIsAutoJoinModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="md"
+              icon={<Zap size={16} />}
+              onClick={handleLaunchAutoJoin}
+              isLoading={isLaunchingAutoJoin}
+              className="bg-emerald-600 hover:bg-emerald-500 font-bold px-5"
+            >
+              Launch Auto-Join in Facebook
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Select Groups Modal */}
       <SelectGroupsModal

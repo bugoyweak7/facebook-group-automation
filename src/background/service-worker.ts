@@ -4,6 +4,7 @@ import {
   getQueueState,
   setQueueState,
   getGroups,
+  setGroups,
   clearAllGroups,
   getPosts,
   getTemplates,
@@ -11,7 +12,13 @@ import {
   updateSettings,
   getFacebookAccount,
   setFacebookAccount,
+  getAutoJoinState,
+  setAutoJoinState,
+  getAutoJoinConfig,
+  setAutoJoinConfig,
 } from '../services/storage/chrome-storage';
+import { normalizeSearchUrl } from '../services/facebook/auto-joiner-engine';
+import { AutoJoinConfig, AutoJoinState } from '../types/auto-joiner';
 import {
   calculateQueueStats,
   findNextExecutableItem,
@@ -222,6 +229,8 @@ async function executeNextQueueItem(): Promise<void> {
     url: groupUrl,
     groupId: nextItem.groupId,
     category: 'General',
+    enabled: true,
+    status: 'READY' as const,
     postCount: 0,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -1102,6 +1111,137 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
         case 'GET_DEBUG_METRICS': {
           const progress = await getDiscoveryProgress();
           sendResponse({ success: true, debugMetrics: progress.debugMetrics || null });
+          break;
+        }
+
+        /* ================= AUTO-JOINER HANDLERS ================= */
+        case 'START_AUTO_JOIN': {
+          const rawConfig = (message.payload || {}) as AutoJoinConfig;
+          const searchUrl = normalizeSearchUrl(rawConfig.searchUrl || '');
+          const config: AutoJoinConfig = {
+            searchUrl,
+            delaySec: typeof rawConfig.delaySec === 'number' ? Math.max(0, rawConfig.delaySec) : 0,
+            maxGroups: typeof rawConfig.maxGroups === 'number' ? rawConfig.maxGroups : 0,
+            autoAnswerQuestions: rawConfig.autoAnswerQuestions !== false,
+            defaultAnswer: rawConfig.defaultAnswer || 'Yes, I agree to the group rules and guidelines.',
+            saveToGroups: rawConfig.saveToGroups !== false,
+            selectedCategory: rawConfig.selectedCategory || 'Auto Joined',
+          };
+
+          await setAutoJoinConfig(config);
+          await setAutoJoinState({
+            status: 'SEARCHING',
+            searchUrl,
+            query: '',
+            totalFound: 0,
+            joinedCount: 0,
+            requestedCount: 0,
+            alreadyJoinedCount: 0,
+            failedCount: 0,
+            skippedCount: 0,
+            currentIndex: 0,
+            currentGroupName: '',
+            countdownSec: 0,
+            message: 'Navigating to Facebook search page...',
+            groups: [],
+            startedAt: Date.now(),
+          });
+
+          // Set pending auto-join flag so content script starts immediately
+          await chrome.storage.local.set({
+            agp_pending_auto_join: {
+              active: true,
+              config,
+              requestedAt: Date.now(),
+            },
+          });
+
+          // Open or focus Facebook tab
+          const tabs = await chrome.tabs.query({ url: ['*://*.facebook.com/*', '*://facebook.com/*'] });
+          let targetTab: chrome.tabs.Tab | undefined = tabs.find(t => t.url && t.url.includes('/search'));
+          if (!targetTab && tabs.length > 0) {
+            targetTab = tabs[0];
+          }
+
+          if (targetTab && targetTab.id) {
+            await chrome.tabs.update(targetTab.id, { url: searchUrl, active: true });
+            if (targetTab.windowId) {
+              try { await chrome.windows.update(targetTab.windowId, { focused: true }); } catch (_) {}
+            }
+          } else {
+            targetTab = await chrome.tabs.create({ url: searchUrl, active: true });
+          }
+
+          await logger.info('background', `Started Auto-Join on: ${searchUrl}`);
+          sendResponse({ success: true, tabId: targetTab?.id, searchUrl });
+          break;
+        }
+
+        case 'PAUSE_AUTO_JOIN': {
+          const tabs = await chrome.tabs.query({ url: ['*://*.facebook.com/*', '*://facebook.com/*'] });
+          for (const tab of tabs) {
+            if (tab.id) {
+              chrome.tabs.sendMessage(tab.id, { type: 'PAUSE_AUTO_JOIN' }).catch(() => {});
+            }
+          }
+          sendResponse({ success: true });
+          break;
+        }
+
+        case 'RESUME_AUTO_JOIN': {
+          const tabs = await chrome.tabs.query({ url: ['*://*.facebook.com/*', '*://facebook.com/*'] });
+          for (const tab of tabs) {
+            if (tab.id) {
+              chrome.tabs.sendMessage(tab.id, { type: 'RESUME_AUTO_JOIN' }).catch(() => {});
+            }
+          }
+          sendResponse({ success: true });
+          break;
+        }
+
+        case 'STOP_AUTO_JOIN': {
+          await chrome.storage.local.remove('agp_pending_auto_join');
+          const tabs = await chrome.tabs.query({ url: ['*://*.facebook.com/*', '*://facebook.com/*'] });
+          for (const tab of tabs) {
+            if (tab.id) {
+              chrome.tabs.sendMessage(tab.id, { type: 'STOP_AUTO_JOIN' }).catch(() => {});
+            }
+          }
+          sendResponse({ success: true });
+          break;
+        }
+
+        case 'GET_AUTO_JOIN_STATE': {
+          const autoState = await getAutoJoinState();
+          sendResponse({ success: true, state: autoState });
+          break;
+        }
+
+        case 'AUTO_JOIN_PROGRESS': {
+          const pState = message.payload as AutoJoinState;
+          if (pState) {
+            await setAutoJoinState(pState);
+          }
+          sendResponse({ success: true });
+          break;
+        }
+
+        case 'AUTO_JOIN_SAVE_GROUPS': {
+          const p = message.payload as { group: Group };
+          if (p && p.group) {
+            const currentGroups = await getGroups();
+            const exists = currentGroups.some(
+              g => (g.groupId && g.groupId.toLowerCase() === p.group.groupId?.toLowerCase()) ||
+                   (g.url && p.group.url && g.url.toLowerCase() === p.group.url.toLowerCase())
+            );
+            if (!exists) {
+              const updatedGroups = [...currentGroups, p.group];
+              await setGroups(updatedGroups);
+              await logger.success('background', `Auto-joined group saved: "${p.group.name}" (Ready for posting)`);
+              showNotification('Facebook Group Added', `"${p.group.name}" is now saved and ready for posting.`);
+            }
+          }
+          sendResponse({ success: true });
           break;
         }
 

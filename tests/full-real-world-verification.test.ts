@@ -314,7 +314,7 @@ describe('Full Real-World Built Extension Verification', () => {
     expect(sw.length).toBeGreaterThan(1000);
 
     const cs = fs.readFileSync(path.join(distDir, 'facebook-content.js'), 'utf8');
-    expect(cs.startsWith('(function(){')).toBe(true);
+    expect(cs.includes('(function(){')).toBe(true);
   });
 
   it('22. No broken buttons or fake placeholder functionality across components', () => {

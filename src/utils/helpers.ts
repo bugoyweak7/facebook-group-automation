@@ -118,7 +118,7 @@ export function resolveSpintax(text: string): string {
     iterations++;
     resolved = resolved.replace(spintaxRegex, (match, choices) => {
       if (choices.includes('|')) {
-        const options = choices.split('|').map(s => s.trim()).filter(Boolean);
+        const options = choices.split('|').map((s: string) => s.trim()).filter(Boolean);
         if (options.length > 0) {
           return options[Math.floor(Math.random() * options.length)];
         }
@@ -130,7 +130,7 @@ export function resolveSpintax(text: string): string {
   // Auto-repair unclosed or trailing spintax like "... {পছন্দ|পছন্দ"
   resolved = resolved.replace(/\{([^{}\r\n]+?)(?=[.,!?\r\n]|$)/g, (match, choices) => {
     if (choices.includes('|')) {
-      const options = choices.split('|').map(s => s.trim()).filter(Boolean);
+      const options = choices.split('|').map((s: string) => s.trim()).filter(Boolean);
       return options[0] || '';
     }
     return match;

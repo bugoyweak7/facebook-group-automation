@@ -10,6 +10,8 @@ import { mergeDiscoveredGroups } from '../services/facebook/discovery-manager';
 import { ActivePostTabPayload, RuntimeMessage } from '../types/messages';
 import { resolveSpintax } from '../utils/helpers';
 import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-styler';
+import { renderAutoJoinerDock } from '../services/facebook/auto-joiner-ui';
+import { AutoJoinerController, isFacebookSearchPage } from '../services/facebook/auto-joiner-engine';
 
 console.log('[AGP:Content] Facebook Assistant Content Script initialized.');
 
@@ -2549,6 +2551,35 @@ function inspectPageAndConnect() {
         }
       }
     );
+  } else if (isFacebookSearchPage()) {
+    // Facebook Group Search page: Inject Auto-Joiner HUD and check if auto-join was requested
+    console.log('[AGP:Content] Facebook Group Search Page detected.');
+    renderAutoJoinerDock();
+
+    // Check if background requested an immediate auto-join upon page navigation
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      chrome.storage.local.get(['agp_pending_auto_join', 'agp_auto_join_config'], (res) => {
+        const pending = res?.agp_pending_auto_join;
+        const config = res?.agp_auto_join_config;
+        if (pending && pending.active && (Date.now() - (pending.requestedAt || 0) < 90000)) {
+          console.log('[AGP:Content] Detected pending Auto-Join request. Starting auto-joiner...');
+          chrome.storage.local.remove('agp_pending_auto_join');
+          const autoConfig = pending.config || config || {
+            searchUrl: window.location.href,
+            delaySec: 0,
+            maxGroups: 0,
+            autoAnswerQuestions: true,
+            defaultAnswer: 'Yes, I agree to the group rules and guidelines.',
+            saveToGroups: true,
+          };
+          renderAutoJoinerDock(autoConfig);
+          // Wait 1.5s for initial search cards to render
+          setTimeout(() => {
+            AutoJoinerController.getInstance().start(autoConfig);
+          }, 1500);
+        }
+      });
+    }
   } else {
     // Non-group Facebook page (e.g. facebook.com homepage feed, profile, etc.)
     // Do not inject helper dock into user's normal browsing feeds to maintain complete tab isolation.
@@ -2766,6 +2797,50 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
       }
     })();
     return true; // Keep message port open for async response
+  }
+
+  /* ================= AUTO-JOINER HANDLERS ================= */
+  if (message.type === 'START_AUTO_JOIN' || message.type === 'AUTO_JOIN_START_ON_PAGE') {
+    (async () => {
+      try {
+        const rawConfig = (message.payload || {}) as any;
+        const config = {
+          ...rawConfig,
+          delaySec: typeof rawConfig.delaySec === 'number' ? rawConfig.delaySec : 0,
+        };
+        renderAutoJoinerDock(config);
+        const finalState = await AutoJoinerController.getInstance().start(config);
+        sendResponse({ success: true, state: finalState });
+      } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        sendResponse({ success: false, error: errorMsg });
+      }
+    })();
+    return true;
+  }
+
+  if (message.type === 'PAUSE_AUTO_JOIN' || message.type === 'AUTO_JOIN_PAUSE_ON_PAGE') {
+    AutoJoinerController.getInstance().pause();
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'RESUME_AUTO_JOIN' || message.type === 'AUTO_JOIN_RESUME_ON_PAGE') {
+    AutoJoinerController.getInstance().resume();
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'STOP_AUTO_JOIN' || message.type === 'AUTO_JOIN_STOP_ON_PAGE') {
+    AutoJoinerController.getInstance().stop();
+    sendResponse({ success: true });
+    return false;
+  }
+
+  if (message.type === 'GET_AUTO_JOIN_STATE') {
+    const state = AutoJoinerController.getInstance().getState();
+    sendResponse({ success: true, state });
+    return false;
   }
 });
 

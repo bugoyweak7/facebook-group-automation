@@ -1,9 +1,15 @@
-import { Group, FacebookAccountInfo } from '../../types/group';
+import { Group, FacebookAccountInfo, AccountGroupStorage } from '../../types/group';
 import { Post, PostTemplate } from '../../types/post';
 import { QueueItem, QueueState } from '../../types/queue';
 import { HistoryRecord } from '../../types/history';
 import { LogEntry } from '../../types/log';
 import { AppSettings } from '../../types/settings';
+import {
+  AutoJoinConfig,
+  AutoJoinState,
+  DEFAULT_AUTO_JOIN_CONFIG,
+  INITIAL_AUTO_JOIN_STATE,
+} from '../../types/auto-joiner';
 import { DEFAULT_SETTINGS, DEFAULT_TEMPLATES } from '../../utils/constants';
 
 const STORAGE_KEYS = {
@@ -17,6 +23,8 @@ const STORAGE_KEYS = {
   LOGS: 'agp_logs',
   SETTINGS: 'agp_settings',
   FACEBOOK_ACCOUNT: 'agp_facebook_account',
+  AUTO_JOIN_STATE: 'agp_auto_join_state',
+  AUTO_JOIN_CONFIG: 'agp_auto_join_config',
 } as const;
 
 // Detect Chrome extension storage availability
@@ -504,4 +512,22 @@ export async function resetAllData(): Promise<void> {
   await setHistory([]);
   await setLogs([]);
   await updateSettings(DEFAULT_SETTINGS);
+}
+
+/* ================= AUTO JOINER ================= */
+
+export async function getAutoJoinState(): Promise<AutoJoinState> {
+  return storageGet<AutoJoinState>(STORAGE_KEYS.AUTO_JOIN_STATE, INITIAL_AUTO_JOIN_STATE);
+}
+
+export async function setAutoJoinState(state: AutoJoinState): Promise<void> {
+  await storageSet(STORAGE_KEYS.AUTO_JOIN_STATE, state);
+}
+
+export async function getAutoJoinConfig(): Promise<AutoJoinConfig> {
+  return storageGet<AutoJoinConfig>(STORAGE_KEYS.AUTO_JOIN_CONFIG, DEFAULT_AUTO_JOIN_CONFIG);
+}
+
+export async function setAutoJoinConfig(config: AutoJoinConfig): Promise<void> {
+  await storageSet(STORAGE_KEYS.AUTO_JOIN_CONFIG, config);
 }

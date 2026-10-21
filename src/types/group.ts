@@ -16,7 +16,7 @@ export interface Group {
   groupId?: string;             // Canonical Facebook group ID or slug (never fabricated)
   privacy?: GroupPrivacy;
   imageUrl?: string;            // Real group photo or cover thumbnail
-  category: string;
+  category?: string;
   location?: string;
   notes?: string;
   enabled: boolean;
@@ -30,6 +30,34 @@ export interface Group {
   discoveredAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface FacebookUserProfile {
+  isLoggedIn: boolean;
+  name: string;
+  profileUrl?: string;
+  avatarUrl?: string;
+  userId?: string;
+}
+
+export interface DiscoveryScanResult {
+  isLoggedIn: boolean;
+  groups: any[];
+  totalFound: number;
+  targetCount: number | null;
+  isPartial: boolean;
+  outcome: ScanOutcome;
+  completionReason: CompletionReason | null;
+  debugMetrics: DebugMetrics;
+}
+
+export interface DiscoveredGroupCandidate {
+  name: string;
+  url: string;
+  groupId: string;
+  privacy: GroupPrivacy;
+  imageUrl?: string;
+  verified?: boolean;
 }
 
 export type DiscoveryState =

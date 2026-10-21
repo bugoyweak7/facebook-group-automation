@@ -6,3 +6,4 @@ export * from './history';
 export * from './log';
 export * from './settings';
 export * from './messages';
+export * from './auto-joiner';
