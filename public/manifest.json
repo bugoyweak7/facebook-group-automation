@@ -19,7 +19,12 @@
     "https://*.facebook.com/*",
     "https://facebook.com/*",
     "*://*.fb.com/*",
-    "*://fb.com/*"
+    "*://fb.com/*",
+    "https://api.github.com/*",
+    "https://raw.githubusercontent.com/*",
+    "https://github.com/*",
+    "http://127.0.0.1:3959/*",
+    "http://localhost:3959/*"
   ],
   "action": {
     "default_popup": "src/pages/popup/index.html",

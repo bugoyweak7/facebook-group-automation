@@ -14,6 +14,7 @@ import { getFacebookAccount } from '../../services/storage/chrome-storage';
 import { useToast } from '../common/Toast';
 import { validateFacebookGroupUrl } from '../../utils/validators';
 import { generateId } from '../../utils/helpers';
+import { UpdateModal } from '../common/UpdateModal';
 
 export interface SelectGroupsModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [foundCount, setFoundCount] = useState<number>(0);
   const [importText, setImportText] = useState('');
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   // Sync initial selected IDs when modal opens
   useEffect(() => {
@@ -283,9 +285,19 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
         
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-slate-100 dark:border-slate-800">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
-            Select Groups
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+              Select Groups
+            </h2>
+            <button
+              onClick={() => setIsUpdateModalOpen(true)}
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-lg border border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all shadow-xs active:scale-95"
+              title="GitHub Update & Extension Reload"
+            >
+              <RefreshCw size={10} className="text-indigo-500" />
+              <span>Update</span>
+            </button>
+          </div>
           <button
             onClick={onClose}
             className="p-1 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -542,6 +554,12 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
         </div>
 
       </div>
+
+      {/* Extension Update Modal */}
+      <UpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+      />
     </div>
   );
 };

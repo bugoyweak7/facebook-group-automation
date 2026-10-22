@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "node scripts/build-extension.js",
+    "updater": "node scripts/local-updater.js",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -426,6 +426,62 @@ export function applyCustomList(text: string, listStyle: ListStyleType): string 
 }
 
 /**
+ * Applies Facebook Group Heading style (H1 / H2)
+ */
+export function applyHeading(text: string, level: 1 | 2 = 1): string {
+  const prefix = level === 1 ? '# ' : '## ';
+  if (!text || !text.trim()) return prefix;
+  const lines = text.split('\n');
+  return lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (trimmed.startsWith('## ')) {
+      return level === 1 ? '# ' + trimmed.slice(3) : trimmed;
+    }
+    if (trimmed.startsWith('# ')) {
+      return level === 2 ? '## ' + trimmed.slice(2) : trimmed;
+    }
+    return prefix + trimmed;
+  }).join('\n');
+}
+
+/**
+ * Applies Facebook Group Numbered List style (1. Item, 2. Item...)
+ */
+export function applyNumberedList(text: string): string {
+  if (!text || !text.trim()) return '  1. ';
+  return applyCustomList(text, 'number');
+}
+
+/**
+ * Applies Facebook Group Blockquote style (> Quote)
+ */
+export function applyBlockquote(text: string): string {
+  if (!text || !text.trim()) return '> ';
+  const lines = text.split('\n');
+  return lines.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (trimmed.startsWith('> ')) return trimmed;
+    return `> ${trimmed}`;
+  }).join('\n');
+}
+
+/**
+ * Applies Strikethrough style (cut text for prices)
+ */
+export function applyStrikethrough(text: string): string {
+  return applyTextStyle(text, 'strikethrough');
+}
+
+/**
+ * Applies Underline style
+ */
+export function applyUnderline(text: string): string {
+  return applyTextStyle(text, 'underline');
+}
+
+/**
  * 1-Click Magic Auto-Beautify for Facebook Marketplace / Group sale posts.
  */
 export function autoBeautifyCaption(rawCaption: string): string {
@@ -501,20 +557,57 @@ export function autoBeautifyCaption(rawCaption: string): string {
 /**
  * Converts a styled caption into rich HTML for Facebook Lexical's native HTML parser.
  */
+/**
+ * Converts a styled caption into rich HTML for Facebook Lexical's native HTML parser.
+ * Supports:
+ * - H1 and H2 Headings (# Title, ## Subtitle)
+ * - Numbered lists (1. Item, 2. Item)
+ * - Bullet lists (• Item, - Item, etc.)
+ * - Blockquotes (> Quote)
+ * - Bold (**text**), Italic (*text*), Strikethrough (~~text~~), Monospace (`code`)
+ * - Non-collapsing empty paragraph spacer lines (<p><br></p>)
+ */
 export function convertToRichHtml(caption: string): string {
   if (!caption) return '<p><br></p>';
 
   const lines = caption.split('\n');
   const htmlParts: string[] = [];
-  let inList = false;
-  let listItems: string[] = [];
 
-  const flushList = () => {
-    if (inList && listItems.length > 0) {
-      htmlParts.push('<ul>' + listItems.map(item => `<li>${item}</li>`).join('') + '</ul>');
-      listItems = [];
-      inList = false;
+  let inBulletList = false;
+  let bulletItems: string[] = [];
+  let inNumberedList = false;
+  let numberedItems: string[] = [];
+  let inQuote = false;
+  let quoteLines: string[] = [];
+
+  const flushBulletList = () => {
+    if (inBulletList && bulletItems.length > 0) {
+      htmlParts.push('<ul>' + bulletItems.map(item => `<li>${item}</li>`).join('') + '</ul>');
+      bulletItems = [];
+      inBulletList = false;
     }
+  };
+
+  const flushNumberedList = () => {
+    if (inNumberedList && numberedItems.length > 0) {
+      htmlParts.push('<ol>' + numberedItems.map(item => `<li>${item}</li>`).join('') + '</ol>');
+      numberedItems = [];
+      inNumberedList = false;
+    }
+  };
+
+  const flushQuote = () => {
+    if (inQuote && quoteLines.length > 0) {
+      htmlParts.push('<blockquote>' + quoteLines.map(ql => `<p>${ql}</p>`).join('') + '</blockquote>');
+      quoteLines = [];
+      inQuote = false;
+    }
+  };
+
+  const flushAll = () => {
+    flushBulletList();
+    flushNumberedList();
+    flushQuote();
   };
 
   for (let i = 0; i < lines.length; i++) {
@@ -522,24 +615,62 @@ export function convertToRichHtml(caption: string): string {
     const trimmed = rawLine.trim();
 
     if (!trimmed) {
-      flushList();
+      flushAll();
       htmlParts.push('<p><br></p>');
+      continue;
+    }
+
+    // Check for Heading 1 (# Heading or h1: Heading)
+    const h1Match = trimmed.match(/^#\s+(.+)$/) || trimmed.match(/^h1:\s*(.+)$/i);
+    if (h1Match) {
+      flushAll();
+      htmlParts.push(`<h1>${formatInlineFormatting(h1Match[1])}</h1>`);
+      continue;
+    }
+
+    // Check for Heading 2 (## Subheading or h2: Subheading)
+    const h2Match = trimmed.match(/^##\s+(.+)$/) || trimmed.match(/^h2:\s*(.+)$/i);
+    if (h2Match) {
+      flushAll();
+      htmlParts.push(`<h2>${formatInlineFormatting(h2Match[1])}</h2>`);
+      continue;
+    }
+
+    // Check for Blockquote (> Quote or ❝ Quote ❞)
+    const quoteMatch = trimmed.match(/^>\s*(.+)$/) || trimmed.match(/^[❝❞]\s*(.+?)[❝❞]?$/);
+    if (quoteMatch) {
+      flushBulletList();
+      flushNumberedList();
+      inQuote = true;
+      quoteLines.push(formatInlineFormatting(quoteMatch[1]));
+      continue;
+    }
+
+    // Check for Numbered list item (1. Item or 1) Item)
+    const numMatch = trimmed.match(/^(\d+)[\.\)]\s+(.*)$/);
+    if (numMatch) {
+      flushBulletList();
+      flushQuote();
+      inNumberedList = true;
+      numberedItems.push(formatInlineFormatting(numMatch[2]));
       continue;
     }
 
     // Check if line is a bullet item
     const bulletMatch = trimmed.match(/^[•✓✔➤➔★⭐◆❖]\s*(.*)$/) || trimmed.match(/^[\-*–—]\s+(.*)$/);
     if (bulletMatch) {
-      inList = true;
-      listItems.push(formatInlineFormatting(bulletMatch[1]));
+      flushNumberedList();
+      flushQuote();
+      inBulletList = true;
+      bulletItems.push(formatInlineFormatting(bulletMatch[1]));
       continue;
     }
 
-    flushList();
+    flushAll();
     htmlParts.push(`<p>${formatInlineFormatting(rawLine)}</p>`);
   }
 
-  flushList();
+  flushAll();
   return htmlParts.join('');
 }
 
@@ -563,6 +694,24 @@ function formatInlineFormatting(text: string): string {
   // Italic: *text* or _text_
   html = html.replace(/\*([^*\n]+?)\*/g, '<em style="font-style: italic;">$1</em>');
   html = html.replace(/_([^_\n]+?)_/g, '<em style="font-style: italic;">$1</em>');
+
+  // Strikethrough: ~~text~~
+  html = html.replace(/~~(.+?)~~/g, '<s>$1</s>');
+
+  // Monospace / Code: `code`
+  html = html.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+
+  // Restore intentional safe formatting tags if already in text
+  html = html
+    .replace(/&lt;(\/?)strong&gt;/gi, '<$1strong>')
+    .replace(/&lt;(\/?)b&gt;/gi, '<$1strong>')
+    .replace(/&lt;(\/?)em&gt;/gi, '<$1em>')
+    .replace(/&lt;(\/?)i&gt;/gi, '<$1em>')
+    .replace(/&lt;(\/?)s&gt;/gi, '<$1s>')
+    .replace(/&lt;(\/?)del&gt;/gi, '<$1s>')
+    .replace(/&lt;(\/?)u&gt;/gi, '<$1u>')
+    .replace(/&lt;(\/?)code&gt;/gi, '<$1code>')
+    .replace(/&lt;br\s*\/?&gt;/gi, '<br>');
 
   return html;
 }
@@ -907,7 +1056,7 @@ export { resolveSpintax } from './helpers';
 export function deduplicateRepeatedCaption(text: string): string {
   if (!text || typeof text !== 'string') return text || '';
   const trimmed = text.trim();
-  if (trimmed.length < 20) return text;
+  if (trimmed.length < 30) return text;
 
   // 1. Direct split in half check (exact or near-exact halves)
   const len = trimmed.length;
@@ -915,7 +1064,7 @@ export function deduplicateRepeatedCaption(text: string): string {
 
   for (let offset = -15; offset <= 15; offset++) {
     const mid = half + offset;
-    if (mid > 10 && mid < len) {
+    if (mid > 15 && mid < len - 15) {
       const first = trimmed.slice(0, mid).trim();
       const second = trimmed.slice(mid).trim();
       if (first.length >= 15 && first === second) {
@@ -924,44 +1073,14 @@ export function deduplicateRepeatedCaption(text: string): string {
     }
   }
 
-  // 2. Prefix re-occurrence check: Find if the beginning of the text repeats later in the text
+  // 2. Full repeated post check: only when both halves are identical or nearly identical across lines
   const lines = trimmed.split('\n').filter(l => l.trim().length > 0);
-  if (lines.length >= 2) {
-    const firstLine = lines[0].trim();
-    if (firstLine.length >= 10) {
-      let searchIdx = firstLine.length;
-      while (searchIdx < trimmed.length) {
-        const repeatIdx = trimmed.indexOf(firstLine, searchIdx);
-        if (repeatIdx === -1) break;
-
-        const firstHalf = trimmed.slice(0, repeatIdx).trim();
-        const secondHalf = trimmed.slice(repeatIdx).trim();
-
-        if (
-          firstHalf.length >= 20 &&
-          (firstHalf === secondHalf ||
-            secondHalf.startsWith(firstHalf) ||
-            firstHalf.startsWith(secondHalf) ||
-            (firstHalf.length > 30 && secondHalf.length > 30 && (firstHalf.slice(0, 50) === secondHalf.slice(0, 50) && firstHalf.slice(-20) === secondHalf.slice(-20))))
-        ) {
-          return firstHalf;
-        }
-
-        searchIdx = repeatIdx + firstLine.length;
-      }
-    }
-  }
-
-  // 3. Fallback chunk search: first 35 chars
-  if (trimmed.length > 60) {
-    const sample = trimmed.slice(0, 35);
-    const repeatPos = trimmed.indexOf(sample, 35);
-    if (repeatPos > 0) {
-      const part1 = trimmed.slice(0, repeatPos).trim();
-      const part2 = trimmed.slice(repeatPos).trim();
-      if (part1.length >= 25 && (part1 === part2 || part2.startsWith(part1.slice(0, Math.floor(part1.length * 0.85))))) {
-        return part1;
-      }
+  if (lines.length >= 4) {
+    const halfLineCount = Math.floor(lines.length / 2);
+    const firstLinesText = lines.slice(0, halfLineCount).join('\n').trim();
+    const secondLinesText = lines.slice(halfLineCount).join('\n').trim();
+    if (firstLinesText.length >= 25 && firstLinesText === secondLinesText) {
+      return firstLinesText;
     }
   }
 

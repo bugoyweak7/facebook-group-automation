@@ -6,6 +6,7 @@ import {
   toNormalText,
   convertToRichHtml,
   htmlToStyledText,
+  deduplicateRepeatedCaption,
 } from '../src/utils/text-styler';
 
 describe('Text Styler & Caption Designer', () => {
@@ -91,5 +92,56 @@ describe('Text Styler & Caption Designer', () => {
     expect(styledText).toContain('  • Ram : 12gb');
     expect(styledText).toContain('  • STOREGE : 256 gb');
     expect(styledText).toContain('𝘱𝘳𝘪𝘤𝘦 𝘪𝘯𝘣𝘰𝘹');
+  });
+
+  it('generates rich HTML with H1, H2, blockquotes, and numbered lists', () => {
+    const caption = [
+      '# Big Title Header',
+      '## Subtitle Info',
+      '> This is a highlighted customer review',
+      '  1. First step',
+      '  2. Second step',
+      '~~old price 2500~~',
+    ].join('\n');
+
+    const html = convertToRichHtml(caption);
+    expect(html).toContain('<h1>Big Title Header</h1>');
+    expect(html).toContain('<h2>Subtitle Info</h2>');
+    expect(html).toContain('<blockquote><p>This is a highlighted customer review</p></blockquote>');
+    expect(html).toContain('<ol><li>First step</li><li>Second step</li></ol>');
+    expect(html).toContain('<s>old price 2500</s>');
+  });
+
+  it('deduplicateRepeatedCaption does NOT truncate posts with multiple decorative borders', () => {
+    const caption = [
+      '══════════════════════════════',
+      'Samsung Galaxy S23 Ultra',
+      '══════════════════════════════',
+      '  • 12GB RAM, 256GB Storage',
+      '  • 100% Fresh Condition',
+      '══════════════════════════════',
+      'Price: 75,000 BDT',
+      'Location: Dhaka',
+      '══════════════════════════════',
+    ].join('\n');
+
+    const deduplicated = deduplicateRepeatedCaption(caption);
+    // Must preserve the entire post, never truncated to just the top divider!
+    expect(deduplicated).toContain('Samsung Galaxy S23 Ultra');
+    expect(deduplicated).toContain('Price: 75,000 BDT');
+    expect(deduplicated).toContain('Location: Dhaka');
+  });
+
+  it('deduplicateRepeatedCaption removes accidental full double-paste duplicates', () => {
+    const singlePost = [
+      '🔥 Special Deal Available 🔥',
+      'Apple iPhone 14 Pro Max 256GB',
+      'Battery health 92%, full fresh',
+      'Price: 95,000 BDT only',
+    ].join('\n');
+
+    const doublePasted = `${singlePost}\n\n${singlePost}`;
+    const cleaned = deduplicateRepeatedCaption(doublePasted);
+    expect(cleaned.trim()).toBe(singlePost.trim());
   });
 });

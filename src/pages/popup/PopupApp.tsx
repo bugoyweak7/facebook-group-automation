@@ -56,6 +56,14 @@ import {
   Trash2,
   Clock,
   Zap,
+  Smile,
+  Eye,
+  EyeOff,
+  Type,
+  Tag,
+  Minus,
+  ListOrdered,
+  Quote,
 } from 'lucide-react';
 import { validateFacebookGroupUrl } from '../../utils/validators';
 import { generateId } from '../../utils/helpers';
@@ -63,11 +71,31 @@ import { aiService } from '../../services/ai/ai-service';
 import {
   applyTextStyle,
   applyBulletList,
+  applyCustomList,
+  applyHeading,
+  applyNumberedList,
+  applyBlockquote,
+  applyStrikethrough,
+  applyUnderline,
   autoBeautifyCaption,
+  convertToRichHtml,
   htmlToStyledText,
   deduplicateRepeatedCaption,
   FontStyleType,
+  ListStyleType,
+  DECORATIVE_DIVIDERS,
+  EMOJI_CATEGORIES,
+  POPULAR_QUICK_EMOJIS,
+  SALES_SNIPPETS,
+  SalesSnippet,
+  DividerItem,
 } from '../../utils/text-styler';
+import { UpdateModal } from '../../components/common/UpdateModal';
+import {
+  fetchLatestGithubCommit,
+  getCurrentCommitSha,
+  checkJustReloaded,
+} from '../../services/updater/extension-updater';
 
 export const PopupApp: React.FC = () => {
   // Navigation views: 'select-groups' | 'compose' | 'posting-queue'
@@ -95,6 +123,10 @@ export const PopupApp: React.FC = () => {
   const [importText, setImportText] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Update System State
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [hasGithubUpdate, setHasGithubUpdate] = useState(false);
+
   // Auto-Joiner State
   const [autoJoinState, setAutoJoinStateObj] = useState<AutoJoinState>(INITIAL_AUTO_JOIN_STATE);
   const [autoJoinUrl, setAutoJoinUrl] = useState('');
@@ -115,6 +147,10 @@ export const PopupApp: React.FC = () => {
   const [showOptionalFields, setShowOptionalFields] = useState(false);
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
   const [isPolishingAi, setIsPolishingAi] = useState(false);
+  const [showLivePreview, setShowLivePreview] = useState(false);
+  const [isEmojiPickerOpen, setIsEmojiPickerOpen] = useState(false);
+  const [emojiSearchTerm, setEmojiSearchTerm] = useState('');
+  const [selectedEmojiCategory, setSelectedEmojiCategory] = useState<string>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -148,6 +184,39 @@ export const PopupApp: React.FC = () => {
     }
   };
 
+  const handleApplyHeading = (level: 1 | 2) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => applyHeading(prev, level));
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const heading = applyHeading(selected, level);
+      const nextCaption = caption.substring(0, start) + heading + caption.substring(end);
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + heading.length);
+      }, 0);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      const lastNewline = before.lastIndexOf('\n');
+      const nextNewline = after.indexOf('\n');
+      const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
+      const lineEnd = nextNewline === -1 ? caption.length : start + nextNewline;
+      const currentLine = caption.substring(lineStart, lineEnd);
+      const headingLine = applyHeading(currentLine, level);
+      const nextCaption = caption.substring(0, lineStart) + headingLine + caption.substring(lineEnd);
+      setCaption(nextCaption);
+      showToast(level === 1 ? '🏷️ Heading 1 Applied!' : '🏷️ Heading 2 Applied!');
+    }
+  };
+
   const handleApplyBullets = () => {
     const el = textareaRef.current;
     if (!el) return;
@@ -170,6 +239,187 @@ export const PopupApp: React.FC = () => {
         el.setSelectionRange(newPos, newPos);
       }, 0);
     }
+  };
+
+  const handleApplyNumbers = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const numbered = applyNumberedList(selected);
+      const nextCaption = caption.substring(0, start) + numbered + caption.substring(end);
+      setCaption(nextCaption);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      const nextCaption = before + (before.endsWith('\n') || !before ? '  1. ' : '\n  1. ') + after;
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        const newPos = start + (before.endsWith('\n') || !before ? 5 : 6);
+        el.setSelectionRange(newPos, newPos);
+      }, 0);
+    }
+  };
+
+  const handleApplyQuote = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const quoted = applyBlockquote(selected);
+      const nextCaption = caption.substring(0, start) + quoted + caption.substring(end);
+      setCaption(nextCaption);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      const nextCaption = before + (before.endsWith('\n') || !before ? '> ' : '\n> ') + after;
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        const newPos = start + (before.endsWith('\n') || !before ? 2 : 3);
+        el.setSelectionRange(newPos, newPos);
+      }, 0);
+    }
+  };
+
+  const handleInsertSnippet = (snippet: SalesSnippet) => {
+    const el = textareaRef.current;
+    let contentToInsert = snippet.content;
+    if (price && contentToInsert.includes('{price}')) {
+      contentToInsert = contentToInsert.replace('{price}', `${price} ৳`);
+    } else {
+      contentToInsert = contentToInsert.replace('{price}', '১,৫০০ ৳');
+    }
+    if (location && contentToInsert.includes('{location}')) {
+      contentToInsert = contentToInsert.replace('{location}', location);
+    } else {
+      contentToInsert = contentToInsert.replace('{location}', 'ঢাকা');
+    }
+    if (phone && contentToInsert.includes('{contact_info}')) {
+      contentToInsert = contentToInsert.replace('{contact_info}', phone);
+    } else {
+      contentToInsert = contentToInsert.replace('{contact_info}', 'ইনবক্স করুন / 017xxxxxxxx');
+    }
+
+    if (!el) {
+      setCaption(prev => prev + '\n' + contentToInsert);
+      return;
+    }
+
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const before = caption.substring(0, start);
+    const after = caption.substring(end);
+    const separator = before.length === 0 || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+    const nextCaption = before + separator + contentToInsert + '\n' + after;
+    setCaption(nextCaption);
+    showToast(`Inserted ${snippet.name}!`);
+  };
+
+  const handleInsertDivider = (dividerText: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => prev + '\n' + dividerText + '\n');
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const before = caption.substring(0, start);
+    const after = caption.substring(end);
+    const separatorBefore = before.length === 0 || before.endsWith('\n') ? '' : '\n';
+    const separatorAfter = after.startsWith('\n') ? '' : '\n';
+    const nextCaption = before + separatorBefore + dividerText + separatorAfter + after;
+    setCaption(nextCaption);
+    showToast('Border inserted!');
+  };
+
+  const handleInsertEmojiAtCursor = (emoji: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => prev + emoji);
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const next = caption.substring(0, start) + emoji + caption.substring(end);
+    setCaption(next);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + emoji.length, start + emoji.length);
+    }, 0);
+  };
+
+  const renderPreviewCaption = (text: string) => {
+    if (!text || !text.trim()) {
+      return (
+        <span className="text-slate-400 italic">No caption entered yet. Type in the editor to see live Facebook styling...</span>
+      );
+    }
+    const lines = text.split('\n');
+    return lines.map((line, idx) => {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return <div key={idx} className="h-2" />;
+      }
+      if (trimmed.startsWith('# ')) {
+        return (
+          <h1 key={idx} className="text-base font-extrabold text-slate-900 dark:text-white pt-1 tracking-tight">
+            {trimmed.replace(/^#\s*/, '')}
+          </h1>
+        );
+      }
+      if (trimmed.startsWith('## ')) {
+        return (
+          <h2 key={idx} className="text-sm font-bold text-slate-800 dark:text-slate-100 pt-0.5">
+            {trimmed.replace(/^##\s*/, '')}
+          </h2>
+        );
+      }
+      if (trimmed.startsWith('> ') || trimmed.startsWith('❝')) {
+        return (
+          <blockquote key={idx} className="border-l-4 border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 pl-2.5 py-1 text-slate-700 dark:text-slate-200 rounded-r font-medium my-1">
+            {trimmed.replace(/^>\s*/, '').replace(/^[❝❞]\s*/, '')}
+          </blockquote>
+        );
+      }
+      if (/^[•✓✔➤➔★⭐◆❖]/.test(trimmed) || /^[\-*–—]\s+/.test(trimmed)) {
+        const marker = trimmed.match(/^([•✓✔➤➔★⭐◆❖\-*–—]+)\s*(.*)$/);
+        return (
+          <div key={idx} className="flex items-start gap-1.5 pl-2">
+            <span className="text-blue-500 font-bold flex-shrink-0">{marker ? marker[1] : '•'}</span>
+            <span>{marker ? marker[2] : trimmed}</span>
+          </div>
+        );
+      }
+      if (/^(\d+)[\.\)]\s+/.test(trimmed)) {
+        const marker = trimmed.match(/^(\d+)[\.\)]\s+(.*)$/);
+        return (
+          <div key={idx} className="flex items-start gap-1.5 pl-2">
+            <span className="text-blue-600 dark:text-blue-400 font-bold text-[11px] flex-shrink-0">{marker ? `${marker[1]}.` : '1.'}</span>
+            <span>{marker ? marker[2] : trimmed}</span>
+          </div>
+        );
+      }
+      if (/^[═━─✦✿▀▄┈•=—\-*~]{8,}/.test(trimmed)) {
+        return (
+          <div key={idx} className="font-mono text-slate-400 dark:text-slate-500 text-[10px] py-0.5 select-none tracking-tight">
+            {line}
+          </div>
+        );
+      }
+      return (
+        <div key={idx} className="whitespace-pre-wrap">
+          {line}
+        </div>
+      );
+    });
   };
 
   const handleAutoBeautify = () => {
@@ -367,6 +617,21 @@ export const PopupApp: React.FC = () => {
   };
 
   useEffect(() => {
+    checkJustReloaded().then(justReloaded => {
+      if (justReloaded) {
+        showToast('✨ Extension reloaded & updated successfully!');
+      }
+    });
+
+    fetchLatestGithubCommit().then(async commit => {
+      if (commit) {
+        const curSha = await getCurrentCommitSha();
+        if (curSha && !commit.sha.startsWith(curSha) && !curSha.startsWith(commit.sha)) {
+          setHasGithubUpdate(true);
+        }
+      }
+    }).catch(() => {});
+
     loadData();
 
     let storageListener: (() => void) | null = null;
@@ -941,6 +1206,22 @@ export const PopupApp: React.FC = () => {
                 Select Groups
               </h1>
               <span className="sr-only">AI Group Poster</span>
+
+              {/* GitHub Update & Reload Button (Circled in user screenshot) */}
+              <button
+                onClick={() => setIsUpdateModalOpen(true)}
+                className="relative flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg border border-indigo-200 dark:border-indigo-800/80 bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all shadow-xs active:scale-95"
+                title="GitHub Update & Extension Reload"
+              >
+                <RefreshCw size={11} className={hasGithubUpdate ? 'animate-spin text-indigo-500' : 'text-indigo-500'} />
+                <span>Update</span>
+                {hasGithubUpdate && (
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                )}
+              </button>
             </div>
 
             <div className="flex items-center gap-2">
@@ -1475,9 +1756,19 @@ export const PopupApp: React.FC = () => {
               </h2>
             </div>
 
-            <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
-              {selectedCount} Target
-            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsUpdateModalOpen(true)}
+                className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition-all"
+                title="GitHub Update & Reload Extension"
+              >
+                <RefreshCw size={10} className={hasGithubUpdate ? 'animate-spin text-indigo-500' : ''} />
+                <span>Update</span>
+              </button>
+              <span className="text-[10px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded-full">
+                {selectedCount} Target
+              </span>
+            </div>
           </div>
 
           {/* Composer Form Body */}
@@ -1518,31 +1809,31 @@ export const PopupApp: React.FC = () => {
               </div>
 
               {/* Design Toolbar */}
-              <div className="flex flex-wrap items-center justify-between gap-1 p-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-t-xl text-[11px]">
+              <div className="p-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-t-xl text-[11px] space-y-1.5">
+                {/* Row 1: Facebook Text Formatting Tools */}
                 <div className="flex flex-wrap items-center gap-1">
                   <button
                     type="button"
-                    onClick={handleAutoBeautify}
-                    className="px-2 py-0.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold border border-amber-500/30 rounded flex items-center gap-1 transition-all"
-                    title="১-ক্লিকে অটো-ডিজাইন (Italic Title, Spec Bullets & Condition Notes)"
+                    onClick={() => handleApplyHeading(1)}
+                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-800 dark:text-slate-100 text-xs"
+                    title="Heading 1 (বড় শিরোনাম - H1)"
                   >
-                    <Sparkles size={11} />
-                    <span>✨ Auto-Design</span>
+                    H1
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => handleApplyStyle('sans-italic')}
-                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-700 dark:text-slate-200"
-                    title="Italic font (e.g. 𝘴𝘢𝘭𝘦)"
+                    onClick={() => handleApplyHeading(2)}
+                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-800 dark:text-slate-100 text-xs"
+                    title="Heading 2 (মাঝারি শিরোনাম - H2)"
                   >
-                    <span className="italic font-serif">𝘐</span> Italic
+                    H2
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleApplyStyle('sans-bold')}
-                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-700 dark:text-slate-200"
+                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-800 dark:text-slate-100"
                     title="Bold font (e.g. 𝘀𝗮𝗹𝗲)"
                   >
                     <span className="font-bold">𝐁</span> Bold
@@ -1550,11 +1841,47 @@ export const PopupApp: React.FC = () => {
 
                   <button
                     type="button"
+                    onClick={() => handleApplyStyle('sans-italic')}
+                    className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-800 dark:text-slate-100"
+                    title="Italic font (e.g. 𝘴𝘢𝘭𝘦)"
+                  >
+                    <span className="italic font-serif">𝘐</span> Italic
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleApplyStyle('strikethrough')}
+                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-mono font-bold text-slate-700 dark:text-slate-200 line-through"
+                    title="Strikethrough / কাটা দাগ (মূল্য ছাড়ে: ̶২̶,̶৫̶০̶০̶ ৳)"
+                  >
+                    S
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={handleApplyBullets}
                     className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-700 dark:text-slate-200 flex items-center gap-0.5"
-                    title="Bullet list"
+                    title="Bullet list (বুলেট পয়েন্ট)"
                   >
                     <span className="text-blue-500">•</span> Bullets
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyNumbers}
+                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-700 dark:text-slate-200"
+                    title="Numbered list (১, ২, ৩ নাম্বারিং)"
+                  >
+                    1. List
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleApplyQuote}
+                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-700 dark:text-slate-200"
+                    title="Blockquote (কোটেশন বক্স)"
+                  >
+                    ❞ Quote
                   </button>
 
                   <select
@@ -1565,17 +1892,99 @@ export const PopupApp: React.FC = () => {
                       }
                     }}
                     defaultValue=""
-                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[11px] text-slate-700 dark:text-slate-300"
+                    className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[11px] text-slate-700 dark:text-slate-300 font-medium"
+                    title="More Unicode Font Styles"
                   >
                     <option value="" disabled>🔤 Style</option>
-                    <option value="sans-italic">𝘴𝘢𝘭𝘦 (Italic)</option>
-                    <option value="sans-bold">𝘀𝗮𝗹𝗲 (Bold)</option>
+                    <option value="sans-bold">𝘀𝗮𝗹𝗲 (Sans Bold)</option>
+                    <option value="sans-italic">𝘴𝘢𝘭𝘦 (Sans Italic)</option>
                     <option value="sans-bold-italic">𝙨𝙖𝙡𝙚 (Bold Italic)</option>
-                    <option value="serif-italic">𝑠𝑎𝑙𝑒 (Serif Italic)</option>
                     <option value="serif-bold">𝐬𝐚ｌｅ (Serif Bold)</option>
+                    <option value="serif-italic">𝑠𝑎𝑙𝑒 (Serif Italic)</option>
+                    <option value="script">𝓈𝒶𝓁ℯ (Cursive Script)</option>
+                    <option value="bold-script">𝓼𝓪𝓵𝓮 (Bold Script)</option>
+                    <option value="fraktur">𝔰𝔞𝔩𝔢 (Gothic Fraktur)</option>
+                    <option value="bold-fraktur">𝖌𝖔𝖙𝖍𝖎𝖈 (Bold Gothic)</option>
+                    <option value="double-struck">𝕕𝕠𝕦𝕓𝕝𝕖 (Double Struck)</option>
+                    <option value="bubble">ⓑⓤⓑⓑⓛⓔ (Bubble)</option>
+                    <option value="bubble-black">🅑🅤🅑🅑🅛🅔 (Black Bubble)</option>
+                    <option value="square">🅂🅀🅄🄰🅁🄴 (Square)</option>
+                    <option value="square-black">🅰🅱🅲 (Black Square)</option>
+                    <option value="small-caps">ѕᴍᴀʟʟ ᴄᴀᴘs (Small Caps)</option>
                     <option value="monospace">𝚜𝚊𝚕𝚎 (Monospace)</option>
-                    <option value="normal">sale (Clear)</option>
+                    <option value="normal">sale (Clear Style)</option>
                   </select>
+                </div>
+
+                {/* Row 2: Sales Tags, Dividers, Auto-Design & Live Preview */}
+                <div className="flex flex-wrap items-center justify-between gap-1 pt-0.5 border-t border-slate-200/60 dark:border-slate-800">
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handleAutoBeautify}
+                      className="px-2 py-0.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-700 dark:text-amber-400 font-bold border border-amber-500/30 rounded flex items-center gap-1 transition-all"
+                      title="১-ক্লিকে অটো-ডিজাইন (Italic Title, Spec Bullets & Condition Notes)"
+                    >
+                      <Sparkles size={11} />
+                      <span>✨ Auto-Design</span>
+                    </button>
+
+                    {/* Sales Snippets Dropdown */}
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          const snip = SALES_SNIPPETS.find(s => s.id === e.target.value);
+                          if (snip) handleInsertSnippet(snip);
+                          e.target.value = '';
+                        }
+                      }}
+                      defaultValue=""
+                      className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold"
+                      title="Insert Sales Elements (Price, Delivery, WhatsApp, Warranty)"
+                    >
+                      <option value="" disabled>🏷️ 1-Click Sales Tags</option>
+                      {SALES_SNIPPETS.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.icon} {s.name}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Borders Dropdown */}
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleInsertDivider(e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                      defaultValue=""
+                      className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded text-[11px] text-slate-700 dark:text-slate-300"
+                      title="Insert Decorative Divider Lines"
+                    >
+                      <option value="" disabled>➖ Borders</option>
+                      {DECORATIVE_DIVIDERS.map(d => (
+                        <option key={d.name} value={d.value}>
+                          {d.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Live FB Preview Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowLivePreview(prev => !prev)}
+                    className={`px-2 py-0.5 rounded font-bold text-[11px] flex items-center gap-1 transition-all ${
+                      showLivePreview
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-blue-600 dark:text-blue-400 hover:border-blue-400'
+                    }`}
+                    title="Toggle Live Facebook Post Preview"
+                  >
+                    {showLivePreview ? <EyeOff size={11} /> : <Eye size={11} />}
+                    <span>{showLivePreview ? 'Edit Text' : '👁️ FB Preview'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -1596,29 +2005,213 @@ export const PopupApp: React.FC = () => {
                 </div>
               )}
 
-              <textarea
-                ref={textareaRef}
-                rows={5}
-                value={caption}
-                onChange={e => setCaption(e.target.value)}
-                onPaste={handlePasteCaption}
-                placeholder="What are you posting? Write your full listing caption, details, price, phone number...&#10;&#10;e.g. 𝘴𝘢𝘭𝘦 𝘰𝘳 𝘦𝘹𝘤𝘩𝘢𝘯𝘨𝘦"
-                className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-b-xl rounded-t-none border-t-0 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 leading-relaxed resize-none"
-              />
+              {/* View Mode: Live FB Preview OR Main Textarea */}
+              {showLivePreview ? (
+                <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-b-xl border-t-0 space-y-2.5 animate-fadeIn shadow-inner">
+                  {/* Mock Facebook Post Header */}
+                  <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-sm">
+                        {account?.name ? account.name.charAt(0).toUpperCase() : 'U'}
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-1">
+                          <span>{account?.name || 'Your Profile'}</span>
+                          <span className="text-slate-400 font-normal">▶</span>
+                          <span className="text-blue-600 dark:text-blue-400 font-bold truncate max-w-[150px]">
+                            {selectedCount > 0 ? (groups.find(g => selectedIdsOrder.includes(g.id))?.name || 'Facebook Group') : 'Target Group'}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 flex items-center gap-1 font-medium">
+                          <span>Just now</span>
+                          <span>·</span>
+                          <span>Public group</span>
+                          <span>·</span>
+                          <span>🌐</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowLivePreview(false)}
+                      className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-bold"
+                    >
+                      ✎ Edit Post
+                    </button>
+                  </div>
 
-              {/* Quick Emojis */}
-              <div className="flex items-center gap-1 overflow-x-auto py-0.5 text-xs">
-                {['🔥', '🏍️', '⚡', '💰', '📞', '📍', '✨', '👉', '✅', '💥'].map(emoji => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => insertEmoji(emoji)}
-                    className="px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  >
-                    {emoji}
-                  </button>
-                ))}
+                  {/* Rendered Live Styled Caption */}
+                  <div className="text-xs text-slate-800 dark:text-slate-100 leading-relaxed max-h-[180px] overflow-y-auto space-y-1 p-1">
+                    {renderPreviewCaption(caption)}
+                  </div>
+
+                  {/* Rendered Attached Media Grid */}
+                  {images.length > 0 && (
+                    <div className="rounded-lg overflow-hidden border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950">
+                      {images.length === 1 && (
+                        <img src={images[0]} alt="Post media" className="w-full h-36 object-cover" />
+                      )}
+                      {images.length === 2 && (
+                        <div className="grid grid-cols-2 gap-1">
+                          <img src={images[0]} alt="Media 1" className="w-full h-28 object-cover" />
+                          <img src={images[1]} alt="Media 2" className="w-full h-28 object-cover" />
+                        </div>
+                      )}
+                      {images.length >= 3 && (
+                        <div className="grid grid-cols-3 gap-1">
+                          <img src={images[0]} alt="Media 1" className="w-full h-24 object-cover" />
+                          <img src={images[1]} alt="Media 2" className="w-full h-24 object-cover" />
+                          <div className="relative">
+                            <img src={images[2]} alt="Media 3" className="w-full h-24 object-cover" />
+                            {images.length > 3 && (
+                              <div className="absolute inset-0 bg-black/60 text-white font-bold text-sm flex items-center justify-center">
+                                +{images.length - 3}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Mock Facebook Engagement Bar */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-around text-slate-500 dark:text-slate-400 text-[11px] font-semibold">
+                    <div className="flex items-center gap-1 hover:text-blue-600 cursor-pointer">
+                      <span>👍</span> Like
+                    </div>
+                    <div className="flex items-center gap-1 hover:text-blue-600 cursor-pointer">
+                      <span>💬</span> Comment
+                    </div>
+                    <div className="flex items-center gap-1 hover:text-blue-600 cursor-pointer">
+                      <span>↗️</span> Share
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <textarea
+                  ref={textareaRef}
+                  rows={5}
+                  value={caption}
+                  onChange={e => setCaption(e.target.value)}
+                  onPaste={handlePasteCaption}
+                  placeholder="What are you posting? Write your full listing caption, details, price, phone number...&#10;&#10;Use H1, H2, Bold, Italic, Bullets, Sales Tags above to design your caption!"
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-b-xl rounded-t-none border-t-0 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 leading-relaxed resize-none"
+                />
+              )}
+
+              {/* Row 3: Quick Clickable Emojis Strip & More Button */}
+              <div className="flex items-center justify-between gap-1 py-0.5 text-xs">
+                <div className="flex items-center gap-1 overflow-x-auto py-0.5 flex-1 no-scrollbar">
+                  {POPULAR_QUICK_EMOJIS.map(emoji => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      onClick={() => handleInsertEmojiAtCursor(emoji)}
+                      className="px-1.5 py-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 transition-transform active:scale-125 text-sm"
+                      title={`Insert ${emoji}`}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsEmojiPickerOpen(prev => !prev)}
+                  className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 rounded text-[11px] font-bold flex items-center gap-1 shrink-0 ml-1 transition-colors"
+                  title="More categorized Facebook emojis"
+                >
+                  <Smile size={12} />
+                  <span>More...</span>
+                </button>
               </div>
+
+              {/* Categorized Emojis Modal / Popover */}
+              {isEmojiPickerOpen && (
+                <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2 shadow-lg animate-fadeIn text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                      <span>😀</span> Facebook Sales Emojis
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsEmojiPickerOpen(false)}
+                      className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+
+                  {/* Search Emojis */}
+                  <input
+                    type="text"
+                    value={emojiSearchTerm}
+                    onChange={e => setEmojiSearchTerm(e.target.value)}
+                    placeholder="Search emoji (e.g. fire, money, phone)..."
+                    className="w-full px-2 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-md text-[11px] text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500"
+                  />
+
+                  {/* Category Filter Pills */}
+                  <div className="flex items-center gap-1 overflow-x-auto pb-1 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEmojiCategory('all')}
+                      className={`px-2 py-0.5 rounded-full font-bold transition-colors ${
+                        selectedEmojiCategory === 'all'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      All
+                    </button>
+                    {EMOJI_CATEGORIES.map(cat => (
+                      <button
+                        key={cat.category}
+                        type="button"
+                        onClick={() => setSelectedEmojiCategory(cat.category)}
+                        className={`px-2 py-0.5 rounded-full font-medium whitespace-nowrap transition-colors ${
+                          selectedEmojiCategory === cat.category
+                            ? 'bg-blue-600 text-white font-bold'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {cat.category.split(' ')[0]} {cat.category.split(' ')[1]}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Emoji Grid */}
+                  <div className="max-h-28 overflow-y-auto space-y-2 pr-1">
+                    {EMOJI_CATEGORIES.filter(cat => selectedEmojiCategory === 'all' || selectedEmojiCategory === cat.category).map(cat => {
+                      const filteredEmojis = cat.emojis.filter(e => !emojiSearchTerm.trim() || e.includes(emojiSearchTerm) || cat.category.toLowerCase().includes(emojiSearchTerm.toLowerCase()));
+                      if (filteredEmojis.length === 0) return null;
+                      return (
+                        <div key={cat.category} className="space-y-1">
+                          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            {cat.category}
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            {filteredEmojis.map(emoji => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => {
+                                  handleInsertEmojiAtCursor(emoji);
+                                  showToast(`Inserted ${emoji}`);
+                                }}
+                                className="w-7 h-7 flex items-center justify-center rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-base transition-transform active:scale-125"
+                                title={`Insert ${emoji}`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Media / Photos & Videos Upload */}
@@ -1810,9 +2403,19 @@ export const PopupApp: React.FC = () => {
               Posting Progress
             </h2>
 
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
-              {queueState.isRunning ? 'Active' : 'Finished'}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsUpdateModalOpen(true)}
+                className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition-all"
+                title="GitHub Update & Reload Extension"
+              >
+                <RefreshCw size={10} className={hasGithubUpdate ? 'animate-spin text-indigo-500' : ''} />
+                <span>Update</span>
+              </button>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400">
+                {queueState.isRunning ? 'Active' : 'Finished'}
+              </span>
+            </div>
           </div>
 
           <div className="p-4 flex-1 overflow-y-auto space-y-3.5">
@@ -2029,6 +2632,13 @@ export const PopupApp: React.FC = () => {
 
         </div>
       )}
+
+      {/* Update Modal */}
+      <UpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+        onShowToast={showToast}
+      />
 
     </div>
   );

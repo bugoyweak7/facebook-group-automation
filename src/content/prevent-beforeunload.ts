@@ -148,41 +148,63 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
 
         let injected = false;
 
-        // Method 1: Native Paste with DataTransfer in MAIN world
-        // CRITICAL: Dispatch ONLY pasteEvent. Never dispatch paste + beforeinput together,
-        // as modern Lexical handles both and will duplicate the post!
+        // Method 1A: Write rich HTML + text to native clipboard and trigger native paste
         try {
-          const dt = new DataTransfer();
-          dt.setData('text/plain', caption);
-          dt.setData('text/html', htmlParagraphs);
-
-          const pasteEvent = new ClipboardEvent('paste', {
-            bubbles: true,
-            cancelable: true,
-            clipboardData: dt,
-          });
-          editor.dispatchEvent(pasteEvent);
-
-          await new Promise(function (r) { setTimeout(r, 80); });
-          let textAfter = (editor.textContent || '').trim();
-
-          // Only fallback to beforeinput if pasteEvent was completely ignored
-          if (!textAfter || textAfter.length < 5) {
-            editor.dispatchEvent(new InputEvent('beforeinput', {
-              bubbles: true,
-              cancelable: true,
-              inputType: 'insertFromPaste',
-              dataTransfer: dt,
-            }));
-            await new Promise(function (r) { setTimeout(r, 60); });
-            textAfter = (editor.textContent || '').trim();
-          }
-
-          const pElements = editor.querySelectorAll('p');
-          if (textAfter.length > 0 && (!caption.includes('\n') || pElements.length > 1 || textAfter.length >= caption.trim().length * 0.7)) {
-            injected = true;
+          if (navigator.clipboard && (window as any).ClipboardItem) {
+            const textBlob = new Blob([caption], { type: 'text/plain' });
+            const htmlBlob = new Blob([htmlParagraphs], { type: 'text/html' });
+            await navigator.clipboard.write([
+              new (window as any).ClipboardItem({
+                'text/plain': textBlob,
+                'text/html': htmlBlob,
+              }),
+            ]);
+            const pasteOk = document.execCommand('paste');
+            if (pasteOk) {
+              await new Promise(function (r) { setTimeout(r, 60); });
+              const checkText = (editor.textContent || '').trim();
+              if (checkText.length >= caption.trim().length * 0.5) {
+                injected = true;
+              }
+            }
           }
         } catch (_) {}
+
+        // Method 1B: Synthetic Paste with DataTransfer in MAIN world
+        if (!injected) {
+          try {
+            const dt = new DataTransfer();
+            dt.setData('text/plain', caption);
+            dt.setData('text/html', htmlParagraphs);
+
+            const pasteEvent = new ClipboardEvent('paste', {
+              bubbles: true,
+              cancelable: true,
+              clipboardData: dt,
+            });
+            editor.dispatchEvent(pasteEvent);
+
+            await new Promise(function (r) { setTimeout(r, 80); });
+            let textAfter = (editor.textContent || '').trim();
+
+            // Only fallback to beforeinput if pasteEvent was completely ignored
+            if (!textAfter || textAfter.length < 5) {
+              editor.dispatchEvent(new InputEvent('beforeinput', {
+                bubbles: true,
+                cancelable: true,
+                inputType: 'insertFromPaste',
+                dataTransfer: dt,
+              }));
+              await new Promise(function (r) { setTimeout(r, 60); });
+              textAfter = (editor.textContent || '').trim();
+            }
+
+            const pElements = editor.querySelectorAll('p');
+            if (textAfter.length > 0 && (!caption.includes('\n') || pElements.length > 1 || textAfter.length >= caption.trim().length * 0.5)) {
+              injected = true;
+            }
+          } catch (_) {}
+        }
 
         // Method 2: Keystroke simulation with non-collapsing empty lines
         if (!injected) {

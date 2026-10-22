@@ -41,6 +41,11 @@ import {
   applyTextStyle,
   applyBulletList,
   applyCustomList,
+  applyHeading,
+  applyNumberedList,
+  applyBlockquote,
+  applyStrikethrough,
+  applyUnderline,
   autoBeautifyCaption,
   htmlToStyledText,
   resolveSpintax,
@@ -374,6 +379,65 @@ export const PostComposer: React.FC<PostComposerProps> = ({
       setTimeout(() => {
         el.focus();
         const newPos = start + insertStr.length;
+        el.setSelectionRange(newPos, newPos);
+      }, 0);
+    }
+  };
+
+  // Apply Heading (H1 / H2)
+  const handleApplyHeadingAction = (level: 1 | 2) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => applyHeading(prev, level));
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const heading = applyHeading(selected, level);
+      const nextCaption = caption.substring(0, start) + heading + caption.substring(end);
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + heading.length);
+      }, 0);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      const lastNewline = before.lastIndexOf('\n');
+      const nextNewline = after.indexOf('\n');
+      const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
+      const lineEnd = nextNewline === -1 ? caption.length : start + nextNewline;
+      const currentLine = caption.substring(lineStart, lineEnd);
+      const headingLine = applyHeading(currentLine, level);
+      const nextCaption = caption.substring(0, lineStart) + headingLine + caption.substring(lineEnd);
+      setCaption(nextCaption);
+      toast.success(level === 1 ? 'Applied Heading 1 (H1)!' : 'Applied Heading 2 (H2)!');
+    }
+  };
+
+  // Apply Blockquote
+  const handleApplyBlockquoteAction = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const quoted = applyBlockquote(selected);
+      const nextCaption = caption.substring(0, start) + quoted + caption.substring(end);
+      setCaption(nextCaption);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      const nextCaption = before + (before.endsWith('\n') || !before ? '> ' : '\n> ') + after;
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        const newPos = start + (before.endsWith('\n') || !before ? 2 : 3);
         el.setSelectionRange(newPos, newPos);
       }, 0);
     }
@@ -736,6 +800,26 @@ export const PostComposer: React.FC<PostComposerProps> = ({
 
                   <div className="h-4 w-[1px] bg-slate-800 mx-1 hidden sm:block"></div>
 
+                  {/* Heading 1 */}
+                  <button
+                    type="button"
+                    onClick={() => handleApplyHeadingAction(1)}
+                    className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500 text-slate-200 font-bold rounded-md transition-all text-xs"
+                    title="Heading 1 (বড় শিরোনাম - H1)"
+                  >
+                    H1
+                  </button>
+
+                  {/* Heading 2 */}
+                  <button
+                    type="button"
+                    onClick={() => handleApplyHeadingAction(2)}
+                    className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500 text-slate-200 font-bold rounded-md transition-all text-xs"
+                    title="Heading 2 (মাঝারি শিরোনাম - H2)"
+                  >
+                    H2
+                  </button>
+
                   {/* Italic Button */}
                   <button
                     type="button"
@@ -784,6 +868,26 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                     title="Underline (u̲n̲d̲e̲r̲l̲i̲n̲e̲)"
                   >
                     <span className="underline text-xs">U</span> Under
+                  </button>
+
+                  {/* Numbered List */}
+                  <button
+                    type="button"
+                    onClick={() => handleApplyCustomListAction('number')}
+                    className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500 text-slate-200 font-bold rounded-md transition-all text-xs"
+                    title="Numbered List (১, ২, ৩ নাম্বারিং)"
+                  >
+                    1. List
+                  </button>
+
+                  {/* Blockquote */}
+                  <button
+                    type="button"
+                    onClick={handleApplyBlockquoteAction}
+                    className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500 text-slate-200 font-bold rounded-md transition-all text-xs"
+                    title="Blockquote (কোটেশন বা হাইলাইট বক্স)"
+                  >
+                    ❞ Quote
                   </button>
 
                   {/* Font Styles Dropdown */}

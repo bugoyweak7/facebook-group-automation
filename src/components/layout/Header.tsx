@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '../common/Button';
-import { Play, Pause, ExternalLink, HelpCircle, Sparkles } from 'lucide-react';
+import { Play, Pause, ExternalLink, HelpCircle, Sparkles, RefreshCw } from 'lucide-react';
 import { QueueState } from '../../types/queue';
+import { UpdateModal } from '../common/UpdateModal';
 
 interface HeaderProps {
   title: string;
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLoadDemoData,
   hasGroups,
 }) => {
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   return (
     <header className="h-16 px-8 border-b border-slate-800 bg-slate-900/60 backdrop-blur flex items-center justify-between sticky top-0 z-30">
       <div>
@@ -91,6 +93,17 @@ export const Header: React.FC<HeaderProps> = ({
           <ExternalLink size={12} />
         </a>
 
+        {/* GitHub Update & Reload Button */}
+        <Button
+          variant="outline"
+          size="sm"
+          icon={<RefreshCw size={13} className="text-indigo-400" />}
+          onClick={() => setIsUpdateModalOpen(true)}
+          title="Check GitHub Updates & Reload Extension"
+        >
+          Update
+        </Button>
+
         {/* Help button */}
         <button
           onClick={onOpenOnboarding}
@@ -100,6 +113,12 @@ export const Header: React.FC<HeaderProps> = ({
           <HelpCircle size={18} />
         </button>
       </div>
+
+      {/* Extension Update Modal */}
+      <UpdateModal
+        isOpen={isUpdateModalOpen}
+        onClose={() => setIsUpdateModalOpen(false)}
+      />
     </header>
   );
 };

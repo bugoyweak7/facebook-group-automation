@@ -171,21 +171,21 @@ async function se() {
 async function L(t) {
   const e = await v(), a = ie(t || (e == null ? void 0 : e.userId) || (e == null ? void 0 : e.name)), n = await se();
   if (n[a] && Array.isArray(n[a].groups) && n[a].groups.length > 0) {
-    const s = n[a].groups.filter((i) => !K(i));
-    if (s.length > 0) return s;
+    const i = n[a].groups.filter((s) => !K(s));
+    if (i.length > 0) return i;
   }
   const o = (await O(_.GROUPS, [])).filter((r) => !K(r));
   if (o.length > 0)
     return o;
   for (const r of Object.keys(n))
     if (n[r] && Array.isArray(n[r].groups) && n[r].groups.length > 0) {
-      const s = n[r].groups.filter((i) => !K(i));
-      if (s.length > 0) return s;
+      const i = n[r].groups.filter((s) => !K(s));
+      if (i.length > 0) return i;
     }
   return [];
 }
 async function X(t, e) {
-  const a = (t || []).filter((s) => !K(s)), n = await v(), c = ie(e || (n == null ? void 0 : n.userId) || (n == null ? void 0 : n.name)), o = await se(), r = o[c] || {
+  const a = (t || []).filter((i) => !K(i)), n = await v(), c = ie(e || (n == null ? void 0 : n.userId) || (n == null ? void 0 : n.name)), o = await se(), r = o[c] || {
     accountContext: c,
     accountInfo: n || { isLoggedIn: !0, name: "Facebook User", lastSyncedAt: Date.now() },
     groups: [],
@@ -320,13 +320,13 @@ function R(t) {
   for (; a < 10 && n.test(e); )
     a++, e = e.replace(n, (c, o) => {
       if (o.includes("|")) {
-        const r = o.split("|").map((s) => s.trim()).filter(Boolean);
+        const r = o.split("|").map((i) => i.trim()).filter(Boolean);
         if (r.length > 0)
           return r[Math.floor(Math.random() * r.length)];
       }
       return c;
     });
-  return e = e.replace(/\{([^{}\r\n]+?)(?=[.,!?\r\n]|$)/g, (c, o) => o.includes("|") ? o.split("|").map((s) => s.trim()).filter(Boolean)[0] || "" : c), e;
+  return e = e.replace(/\{([^{}\r\n]+?)(?=[.,!?\r\n]|$)/g, (c, o) => o.includes("|") ? o.split("|").map((i) => i.trim()).filter(Boolean)[0] || "" : c), e;
 }
 function _e(t) {
   if (!t) return "https://www.facebook.com/search/groups/?q=";
@@ -388,8 +388,8 @@ class Pe {
     e === "ERROR" ? console.error(r, n, c || "") : e === "WARNING" ? console.warn(r, n, c || "") : console.log(r, n, c || "");
     try {
       await be(o);
-    } catch (s) {
-      console.warn("Failed to persist log entry:", s);
+    } catch (i) {
+      console.warn("Failed to persist log entry:", i);
     }
     return o;
   }
@@ -445,17 +445,17 @@ function Oe(t) {
   }), e;
 }
 async function Ue(t, e, a = "READY") {
-  const [n, c] = await Promise.all([L(), J()]), o = c.find((i) => i.id === e);
+  const [n, c] = await Promise.all([L(), J()]), o = c.find((s) => s.id === e);
   let r = 0;
-  const s = t.map((i) => {
+  const i = t.map((s) => {
     r++;
-    const d = n.find(
-      (w) => w.id === i || w.groupId === i || w.url && w.url.includes(i)
-    ), m = (d == null ? void 0 : d.url) || (i.startsWith("http") ? i : `https://www.facebook.com/groups/${i}/`);
+    const f = n.find(
+      (w) => w.id === s || w.groupId === s || w.url && w.url.includes(s)
+    ), m = (f == null ? void 0 : f.url) || (s.startsWith("http") ? s : `https://www.facebook.com/groups/${s}/`);
     return {
       id: V("queue"),
-      groupId: i,
-      groupName: d ? d.name : "Facebook Group",
+      groupId: s,
+      groupName: f ? f.name : "Facebook Group",
       groupUrl: m,
       postId: e,
       caption: (o == null ? void 0 : o.caption) || (o == null ? void 0 : o.description) || void 0,
@@ -466,7 +466,7 @@ async function Ue(t, e, a = "READY") {
       createdAt: Date.now()
     };
   });
-  return await ee(s), await T.info("queue", `Created clean posting queue for ${s.length} groups`), s;
+  return await ee(i), await T.info("queue", `Created clean posting queue for ${i.length} groups`), i;
 }
 function ve(t) {
   const e = t.find((a) => a.status === "READY");
@@ -480,24 +480,24 @@ async function H(t, e, a) {
   return n[c] = o, await ee(n), { queue: n, updatedItem: o };
 }
 async function ke(t, e) {
-  const { queue: a, updatedItem: n } = await H(t, "POSTED"), [c, o] = await Promise.all([L(), J()]), r = c.find((m) => m.id === n.groupId), s = o.find((m) => m.id === n.postId), i = n.startedAt ? Math.max(1, Math.round((Date.now() - n.startedAt) / 1e3)) : void 0, d = {
+  const { queue: a, updatedItem: n } = await H(t, "POSTED"), [c, o] = await Promise.all([L(), J()]), r = c.find((m) => m.id === n.groupId), i = o.find((m) => m.id === n.postId), s = n.startedAt ? Math.max(1, Math.round((Date.now() - n.startedAt) / 1e3)) : void 0, f = {
     id: V("hist"),
     queueItemId: n.id,
     groupId: n.groupId,
     groupName: r ? r.name : "Unknown Group",
     groupUrl: r ? r.url : "",
     postId: n.postId,
-    postTitle: s ? s.title : "Untitled Post",
-    productName: s ? s.productName : "",
+    postTitle: i ? i.title : "Untitled Post",
+    productName: i ? i.productName : "",
     status: "POSTED",
     postedAt: Date.now(),
     notes: "User confirmed posting on Facebook",
-    durationSeconds: i
+    durationSeconds: s
   };
-  return await ue(d), r && (r.postCount = (r.postCount || 0) + 1, r.lastPostedAt = Date.now(), r.status = "POSTED", await X(c)), await T.success("queue", `Post marked as POSTED for group: ${r ? r.name : n.groupId}`), n;
+  return await ue(f), r && (r.postCount = (r.postCount || 0) + 1, r.lastPostedAt = Date.now(), r.status = "POSTED", await X(c)), await T.success("queue", `Post marked as POSTED for group: ${r ? r.name : n.groupId}`), n;
 }
 async function de(t, e = "User skipped") {
-  const { updatedItem: a } = await H(t, "SKIPPED"), [n, c] = await Promise.all([L(), J()]), o = n.find((i) => i.id === a.groupId), r = c.find((i) => i.id === a.postId), s = {
+  const { updatedItem: a } = await H(t, "SKIPPED"), [n, c] = await Promise.all([L(), J()]), o = n.find((s) => s.id === a.groupId), r = c.find((s) => s.id === a.postId), i = {
     id: V("hist"),
     queueItemId: a.id,
     groupId: a.groupId,
@@ -510,7 +510,7 @@ async function de(t, e = "User skipped") {
     postedAt: Date.now(),
     notes: e
   };
-  return await ue(s), await T.info("queue", `Post marked as SKIPPED for group: ${o ? o.name : a.groupId}`), a;
+  return await ue(i), await T.info("queue", `Post marked as SKIPPED for group: ${o ? o.name : a.groupId}`), a;
 }
 function Ge(t, e) {
   return {
@@ -567,39 +567,24 @@ ${t.features.trim()}`), t.location && t.location.trim() && a.push(`Location: ${t
 function Le(t) {
   if (!t || typeof t != "string") return t || "";
   const e = t.trim();
-  if (e.length < 20) return t;
+  if (e.length < 30) return t;
   const a = e.length, n = Math.floor(a / 2);
   for (let o = -15; o <= 15; o++) {
     const r = n + o;
-    if (r > 10 && r < a) {
-      const s = e.slice(0, r).trim(), i = e.slice(r).trim();
-      if (s.length >= 15 && s === i)
-        return s;
+    if (r > 15 && r < a - 15) {
+      const i = e.slice(0, r).trim(), s = e.slice(r).trim();
+      if (i.length >= 15 && i === s)
+        return i;
     }
   }
   const c = e.split(`
 `).filter((o) => o.trim().length > 0);
-  if (c.length >= 2) {
-    const o = c[0].trim();
-    if (o.length >= 10) {
-      let r = o.length;
-      for (; r < e.length; ) {
-        const s = e.indexOf(o, r);
-        if (s === -1) break;
-        const i = e.slice(0, s).trim(), d = e.slice(s).trim();
-        if (i.length >= 20 && (i === d || d.startsWith(i) || i.startsWith(d) || i.length > 30 && d.length > 30 && i.slice(0, 50) === d.slice(0, 50) && i.slice(-20) === d.slice(-20)))
-          return i;
-        r = s + o.length;
-      }
-    }
-  }
-  if (e.length > 60) {
-    const o = e.slice(0, 35), r = e.indexOf(o, 35);
-    if (r > 0) {
-      const s = e.slice(0, r).trim(), i = e.slice(r).trim();
-      if (s.length >= 25 && (s === i || i.startsWith(s.slice(0, Math.floor(s.length * 0.85)))))
-        return s;
-    }
+  if (c.length >= 4) {
+    const o = Math.floor(c.length / 2), r = c.slice(0, o).join(`
+`).trim(), i = c.slice(o).join(`
+`).trim();
+    if (r.length >= 25 && r === i)
+      return r;
   }
   return t;
 }
@@ -674,21 +659,21 @@ async function N(t) {
 }
 async function pe(t, e) {
   var b;
-  const a = (e == null ? void 0 : e.accountContext) || ((b = await v()) == null ? void 0 : b.name) || "default_account", n = await L(a), c = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map(), s = (l) => l.trim().toLowerCase().replace(/\s+/g, " ");
+  const a = (e == null ? void 0 : e.accountContext) || ((b = await v()) == null ? void 0 : b.name) || "default_account", n = await L(a), c = /* @__PURE__ */ new Map(), o = /* @__PURE__ */ new Map(), r = /* @__PURE__ */ new Map(), i = (l) => l.trim().toLowerCase().replace(/\s+/g, " ");
   n.forEach((l) => {
-    l.groupId && c.set(l.groupId.toLowerCase(), l), l.url && o.set(l.url.toLowerCase().replace(/\/$/, ""), l), l.name && r.set(s(l.name), l);
+    l.groupId && c.set(l.groupId.toLowerCase(), l), l.url && o.set(l.url.toLowerCase().replace(/\/$/, ""), l), l.name && r.set(i(l.name), l);
   });
-  let i = 0, d = 0;
+  let s = 0, f = 0;
   const m = Date.now(), w = [], u = /* @__PURE__ */ new Set();
   for (const l of t) {
     if (K(l)) continue;
-    const A = (l.groupId || "").toLowerCase(), g = (l.url || "").toLowerCase().replace(/\/$/, ""), h = s(l.name || "");
+    const A = (l.groupId || "").toLowerCase(), g = (l.url || "").toLowerCase().replace(/\/$/, ""), h = i(l.name || "");
     let S = (A ? c.get(A) : void 0) || (g ? o.get(g) : void 0) || (h && h.length >= 3 ? r.get(h) : void 0);
     const C = Fe(l.name || "", l.groupId);
     if (S)
-      d++, u.add(S.id), C && (!S.name || S.name.includes("·") || S.name.length < C.length) && (S.name = C), l.imageUrl && !S.imageUrl && (S.imageUrl = l.imageUrl), l.privacy && l.privacy !== "UNKNOWN" && (S.privacy = l.privacy), S.verified = !0, S.source = "facebook-ui", S.accountContext = a, S.discoveredAt = m, S.updatedAt = m;
+      f++, u.add(S.id), C && (!S.name || S.name.includes("·") || S.name.length < C.length) && (S.name = C), l.imageUrl && !S.imageUrl && (S.imageUrl = l.imageUrl), l.privacy && l.privacy !== "UNKNOWN" && (S.privacy = l.privacy), S.verified = !0, S.source = "facebook-ui", S.accountContext = a, S.discoveredAt = m, S.updatedAt = m;
     else {
-      i++;
+      s++;
       const q = l.groupId ? `grp_${l.groupId.replace(/[^a-zA-Z0-9_-]/g, "")}` : V("grp"), z = l.url.startsWith("http") ? l.url : `https://www.facebook.com/groups/${l.groupId}/`, W = {
         id: q,
         name: C,
@@ -712,23 +697,23 @@ async function pe(t, e) {
       w.push(W), A && c.set(A, W), g && o.set(g, W), h && r.set(h, W), u.add(W.id);
     }
   }
-  let f;
+  let p;
   if ((e == null ? void 0 : e.syncMode) === "exact") {
     const l = (g) => g.source === "manual" || g.category && g.category !== "Discovered", A = n.filter((g) => u.has(g.id) || l(g));
-    f = [...w, ...A];
+    p = [...w, ...A];
   } else
-    f = [...w, ...n];
-  const I = [], p = /* @__PURE__ */ new Set(), k = /* @__PURE__ */ new Set();
-  for (const l of f) {
+    p = [...w, ...n];
+  const I = [], d = /* @__PURE__ */ new Set(), k = /* @__PURE__ */ new Set();
+  for (const l of p) {
     const A = l.url.toLowerCase().replace(/\/$/, "");
-    !p.has(l.id) && !k.has(A) && (p.add(l.id), k.add(A), I.push(l));
+    !d.has(l.id) && !k.has(A) && (d.add(l.id), k.add(A), I.push(l));
   }
   return await X(I, a), await T.info(
     "dashboard",
-    `Group discovery merged (${(e == null ? void 0 : e.syncMode) || "merge"}): ${i} imported, ${d} duplicates, total ${I.length}`
+    `Group discovery merged (${(e == null ? void 0 : e.syncMode) || "merge"}): ${s} imported, ${f} duplicates, total ${I.length}`
   ), {
-    imported: i,
-    duplicates: d,
+    imported: s,
+    duplicates: f,
     totalStored: I.length,
     verifiedCount: I.filter((l) => l.verified).length
   };
@@ -836,8 +821,8 @@ async function $() {
     updatedAt: Date.now()
   };
   r.url = o;
-  let s = n.find((u) => u.id === e.postId) || n[n.length - 1] || n[0];
-  s || (s = {
+  let i = n.find((u) => u.id === e.postId) || n[n.length - 1] || n[0];
+  i || (i = {
     id: e.postId || "post_default",
     title: "Facebook Group Listing",
     productName: "Facebook Group Listing",
@@ -847,20 +832,20 @@ async function $() {
     createdAt: Date.now(),
     updatedAt: Date.now()
   }), await H(e.id, "IN_PROGRESS");
-  let i, d = !1;
+  let s, f = !1;
   if (E)
     try {
       const u = await chrome.windows.get(E, { populate: !0 });
-      u && u.id && (d = !0);
+      u && u.id && (f = !0);
     } catch {
-      d = !1, E = null, y = null;
+      f = !1, E = null, y = null;
     }
-  if (d && E) {
+  if (f && E) {
     if (y)
       try {
         const u = await chrome.tabs.get(y);
         if (u && u.windowId === E) {
-          await chrome.tabs.update(y, { url: r.url, active: !0 }), i = y;
+          await chrome.tabs.update(y, { url: r.url, active: !0 }), s = y;
           try {
             await chrome.windows.update(E, { focused: !0 });
           } catch {
@@ -869,19 +854,19 @@ async function $() {
       } catch {
         y = null;
       }
-    if (!i)
+    if (!s)
       try {
         const u = await chrome.tabs.create({
           windowId: E,
           url: r.url,
           active: !0
         });
-        i = u.id, y = u.id ?? null;
+        s = u.id, y = u.id ?? null;
       } catch (u) {
         console.warn("[AGP:Worker] Failed to create tab inside automation window:", u);
       }
   }
-  if (!i || !E)
+  if (!s || !E)
     try {
       const u = await chrome.windows.create({
         url: r.url,
@@ -892,7 +877,7 @@ async function $() {
         left: 60,
         focused: !0
       });
-      E = u.id ?? null, u.tabs && u.tabs.length > 0 ? i = u.tabs[0].id : u.id && (i = (w = (await chrome.tabs.query({ windowId: u.id }))[0]) == null ? void 0 : w.id), y = i ?? null;
+      E = u.id ?? null, u.tabs && u.tabs.length > 0 ? s = u.tabs[0].id : u.id && (s = (w = (await chrome.tabs.query({ windowId: u.id }))[0]) == null ? void 0 : w.id), y = s ?? null;
     } catch (u) {
       console.error("[AGP:Worker] Failed to create dedicated automation popup window:", u);
     }
@@ -902,12 +887,12 @@ async function $() {
     isRunning: !0,
     isPaused: !1,
     currentItemId: e.id,
-    activeTabId: i ?? null,
+    activeTabId: s ?? null,
     expectedGroupId: r.groupId || r.id,
     expectedGroupName: r.name,
     expectedGroupUrl: r.url,
     currentGroupMatch: !0
-  }), await T.info("queue", `Opening group: ${r.name} (${r.url})`), await M("Group Opened", `Review your prepared post for: ${r.name}`), await x("POST_READY", { groupId: r.id, postId: s.id, groupName: r.name });
+  }), await T.info("queue", `Opening group: ${r.name} (${r.url})`), await M("Group Opened", `Review your prepared post for: ${r.name}`), await x("POST_READY", { groupId: r.id, postId: i.id, groupName: r.name });
 }
 let F = null;
 async function $e() {
@@ -925,7 +910,7 @@ async function $e() {
   await N(t);
   let e = null, a = null;
   try {
-    const s = await chrome.windows.create({
+    const i = await chrome.windows.create({
       url: "https://www.facebook.com/groups/joins/?nav_source=tab",
       type: "popup",
       width: 500,
@@ -934,29 +919,29 @@ async function $e() {
       left: 80,
       focused: !0
     });
-    if (e = s.id ?? null, F = e, s.tabs && s.tabs.length > 0 ? a = s.tabs[0].id ?? null : e && (a = ((n = (await chrome.tabs.query({ windowId: e }))[0]) == null ? void 0 : n.id) ?? null), !a)
+    if (e = i.id ?? null, F = e, i.tabs && i.tabs.length > 0 ? a = i.tabs[0].id ?? null : e && (a = ((n = (await chrome.tabs.query({ windowId: e }))[0]) == null ? void 0 : n.id) ?? null), !a)
       throw new Error("Failed to resolve Facebook tab for group sync.");
     console.log(`[AGP:Worker] Facebook popup window created (Win #${e}, Tab #${a})`);
-    const i = Date.now();
-    for (; Date.now() - i < 15e3; ) {
+    const s = Date.now();
+    for (; Date.now() - s < 15e3; ) {
       try {
         if ((await chrome.tabs.get(a)).status === "complete") break;
       } catch {
       }
-      await new Promise((f) => setTimeout(f, 400));
+      await new Promise((p) => setTimeout(p, 400));
     }
-    if (await new Promise((f) => setTimeout(f, 2200)), !await new Promise((f) => {
+    if (await new Promise((p) => setTimeout(p, 2200)), !await new Promise((p) => {
       chrome.tabs.sendMessage(a, { type: "CHECK_FACEBOOK_SESSION" }, (I) => {
-        f(!chrome.runtime.lastError && (I == null ? void 0 : I.success));
+        p(!chrome.runtime.lastError && (I == null ? void 0 : I.success));
       });
     }) && chrome.scripting)
       try {
         await chrome.scripting.executeScript({
           target: { tabId: a },
           files: ["facebook-content.js"]
-        }), await new Promise((f) => setTimeout(f, 1e3));
-      } catch (f) {
-        console.warn("[AGP:Worker] Script injection warning:", f);
+        }), await new Promise((p) => setTimeout(p, 1e3));
+      } catch (p) {
+        console.warn("[AGP:Worker] Script injection warning:", p);
       }
     await N({
       state: "DISCOVERING",
@@ -968,49 +953,49 @@ async function $e() {
       message: "Scanning Facebook joined groups...",
       lastDiscoveredAt: Date.now()
     });
-    const m = await new Promise((f) => {
+    const m = await new Promise((p) => {
       chrome.tabs.sendMessage(a, { type: "START_GROUP_DISCOVERY" }, (I) => {
-        chrome.runtime.lastError ? f({ success: !1, error: chrome.runtime.lastError.message }) : f(I || { success: !1, error: "No response from content script" });
+        chrome.runtime.lastError ? p({ success: !1, error: chrome.runtime.lastError.message }) : p(I || { success: !1, error: "No response from content script" });
       });
     });
     if (e) {
       try {
         await chrome.windows.remove(e);
-      } catch (f) {
-        console.warn("[AGP:Worker] Popup window auto-close note:", f);
+      } catch (p) {
+        console.warn("[AGP:Worker] Popup window auto-close note:", p);
       }
       F = null;
     }
     if (m != null && m.success && m.payload) {
-      const f = m.payload, I = f.groups || [], p = f.profile, k = (p == null ? void 0 : p.userId) || (p == null ? void 0 : p.name) || void 0, b = await v(), l = ((p == null ? void 0 : p.name) || (b == null ? void 0 : b.name) || "").trim();
-      b != null && b.name && (p != null && p.name) && b.name.trim().toLowerCase() !== p.name.trim().toLowerCase() && console.log(`[AGP:Worker] Account changed from "${b.name}" to "${p.name}". Isolated storage.`);
+      const p = m.payload, I = p.groups || [], d = p.profile, k = (d == null ? void 0 : d.userId) || (d == null ? void 0 : d.name) || void 0, b = await v(), l = ((d == null ? void 0 : d.name) || (b == null ? void 0 : b.name) || "").trim();
+      b != null && b.name && (d != null && d.name) && b.name.trim().toLowerCase() !== d.name.trim().toLowerCase() && console.log(`[AGP:Worker] Account changed from "${b.name}" to "${d.name}". Isolated storage.`);
       const A = await pe(I, {
         syncMode: "exact",
         accountContext: k
       }), g = {
-        isLoggedIn: !!(p != null && p.isLoggedIn || p != null && p.name),
+        isLoggedIn: !!(d != null && d.isLoggedIn || d != null && d.name),
         name: l || "Facebook User",
-        profileUrl: (p == null ? void 0 : p.profileUrl) || (b == null ? void 0 : b.profileUrl) || "https://www.facebook.com",
-        avatarUrl: (p == null ? void 0 : p.avatarUrl) || (b == null ? void 0 : b.avatarUrl) || "",
-        userId: (p == null ? void 0 : p.userId) || (b == null ? void 0 : b.userId) || "",
+        profileUrl: (d == null ? void 0 : d.profileUrl) || (b == null ? void 0 : b.profileUrl) || "https://www.facebook.com",
+        avatarUrl: (d == null ? void 0 : d.avatarUrl) || (b == null ? void 0 : b.avatarUrl) || "",
+        userId: (d == null ? void 0 : d.userId) || (b == null ? void 0 : b.userId) || "",
         totalGroupsCount: A.totalStored,
         lastSyncedAt: Date.now()
       };
       await j(g);
-      const h = f.outcome || (f.isPartial ? "PARTIAL" : "COMPLETE"), S = f.completionReason || (h === "COMPLETE" ? "TARGET_REACHED" : "STAGNANT_TIMEOUT");
+      const h = p.outcome || (p.isPartial ? "PARTIAL" : "COMPLETE"), S = p.completionReason || (h === "COMPLETE" ? "TARGET_REACHED" : "STAGNANT_TIMEOUT");
       let C = "";
       h === "COMPLETE" ? C = `${A.totalStored} verified groups found — scan complete.` : C = `${A.totalStored} verified groups found — Facebook did not expose the complete list.`;
       const q = {
         state: h === "COMPLETE" ? "DISCOVERY_COMPLETE" : "DISCOVERY_PARTIAL",
-        foundCount: f.totalFoundOnPage || A.totalStored,
+        foundCount: p.totalFoundOnPage || A.totalStored,
         importedCount: A.imported,
         duplicateCount: A.duplicates,
         errorCount: 0,
         outcome: h,
         completionReason: S,
-        targetCount: ((c = f.debugMetrics) == null ? void 0 : c.targetCount) ?? null,
-        targetCountStatus: ((o = f.debugMetrics) == null ? void 0 : o.targetCountStatus) ?? "UNAVAILABLE",
-        debugMetrics: f.debugMetrics,
+        targetCount: ((c = p.debugMetrics) == null ? void 0 : c.targetCount) ?? null,
+        targetCountStatus: ((o = p.debugMetrics) == null ? void 0 : o.targetCountStatus) ?? "UNAVAILABLE",
+        debugMetrics: p.debugMetrics,
         message: C,
         lastDiscoveredAt: Date.now()
       };
@@ -1036,7 +1021,7 @@ async function $e() {
       }
       F = null;
     }
-    const i = {
+    const s = {
       state: "DISCOVERY_FAILED",
       foundCount: 0,
       importedCount: 0,
@@ -1047,7 +1032,7 @@ async function $e() {
       message: `Discovery error: ${r instanceof Error ? r.message : String(r)}`,
       lastDiscoveredAt: Date.now()
     };
-    return await N(i), i;
+    return await N(s), s;
   }
 }
 chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
@@ -1124,17 +1109,17 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
         break;
       }
       case "GET_QUEUE_STATE": {
-        const [o, r] = await Promise.all([B(), D()]), s = Oe(o);
-        a({ success: !0, queue: o, state: r, stats: s });
+        const [o, r] = await Promise.all([B(), D()]), i = Oe(o);
+        a({ success: !0, queue: o, state: r, stats: i });
         break;
       }
       case "DETECT_FB_SESSION": {
-        const r = (await chrome.tabs.query({})).find((s) => s.url && s.url.includes("facebook.com"));
+        const r = (await chrome.tabs.query({})).find((i) => i.url && i.url.includes("facebook.com"));
         if (r && r.id)
           return await (async () => {
-            chrome.tabs.sendMessage(r.id, { type: "GET_FACEBOOK_USER_INFO" }, async (i) => {
-              const d = await L();
-              if (chrome.runtime.lastError || !i) {
+            chrome.tabs.sendMessage(r.id, { type: "GET_FACEBOOK_USER_INFO" }, async (s) => {
+              const f = await L();
+              if (chrome.runtime.lastError || !s) {
                 if (chrome.scripting && r.id)
                   try {
                     await chrome.scripting.executeScript({
@@ -1149,7 +1134,7 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
                             profileUrl: w.profile.profileUrl,
                             avatarUrl: w.profile.avatarUrl,
                             userId: w.profile.userId,
-                            totalGroupsCount: d.length,
+                            totalGroupsCount: f.length,
                             lastSyncedAt: Date.now()
                           };
                           await j(u), a({ success: !0, account: u });
@@ -1166,14 +1151,14 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
                 a({ success: !0, account: m });
                 return;
               }
-              if (i && i.profile && i.profile.isLoggedIn) {
+              if (s && s.profile && s.profile.isLoggedIn) {
                 const m = {
                   isLoggedIn: !0,
-                  name: i.profile.name,
-                  profileUrl: i.profile.profileUrl,
-                  avatarUrl: i.profile.avatarUrl,
-                  userId: i.profile.userId,
-                  totalGroupsCount: d.length,
+                  name: s.profile.name,
+                  profileUrl: s.profile.profileUrl,
+                  avatarUrl: s.profile.avatarUrl,
+                  userId: s.profile.userId,
+                  totalGroupsCount: f.length,
                   lastSyncedAt: Date.now()
                 };
                 await j(m), a({ success: !0, account: m });
@@ -1184,8 +1169,8 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
             });
           })(), !0;
         {
-          const s = await v();
-          a({ success: !0, account: s });
+          const i = await v();
+          a({ success: !0, account: i });
         }
         break;
       }
@@ -1229,18 +1214,18 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
       case "CREATE_AND_START_QUEUE": {
         const o = t.payload;
         if (o && Array.isArray(o.groupIds) && o.postId) {
-          const r = await Q(), s = typeof o.delaySec == "number" && o.delaySec >= 0 ? o.delaySec : 0;
+          const r = await Q(), i = typeof o.delaySec == "number" && o.delaySec >= 0 ? o.delaySec : 0;
           if (await le({
-            queue: { ...r.queue, delayBetweenItemsSec: s }
+            queue: { ...r.queue, delayBetweenItemsSec: i }
           }), E)
             try {
               await chrome.windows.remove(E);
             } catch {
             }
           E = null, y = null, await Ue(o.groupIds, o.postId, "READY");
-          const i = await D();
+          const s = await D();
           await P({
-            ...i,
+            ...s,
             isRunning: !0,
             isPaused: !1,
             activeTabId: null,
@@ -1284,25 +1269,25 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
           return;
         }
         await ke(r), await M("Post Completed", "Group marked as posted."), await x("POST_MARKED_POSTED", { itemId: r });
-        const s = await Q();
-        o.isPaused || (await P({ ...o, isRunning: !0 }), s.queue.delayBetweenItemsSec > 0 && s.queue.delayBetweenItemsSec <= 5 && await qe(s.queue.delayBetweenItemsSec), await $()), a({ success: !0 });
+        const i = await Q();
+        o.isPaused || (await P({ ...o, isRunning: !0 }), i.queue.delayBetweenItemsSec > 0 && i.queue.delayBetweenItemsSec <= 5 && await qe(i.queue.delayBetweenItemsSec), await $()), a({ success: !0 });
         break;
       }
       case "SKIP_CURRENT_ITEM": {
-        const o = await D(), r = t.payload, s = (r == null ? void 0 : r.itemId) || o.currentItemId;
-        if (!s) {
+        const o = await D(), r = t.payload, i = (r == null ? void 0 : r.itemId) || o.currentItemId;
+        if (!i) {
           a({ success: !1, error: "No active item to skip" });
           return;
         }
-        const i = (r == null ? void 0 : r.reason) || "Auto-skipped (posting unavailable or wrong group)";
-        await de(s, i), await x("POST_SKIPPED", { itemId: s, reason: i }), o.isPaused || (await P({ ...o, isRunning: !0 }), await $()), a({ success: !0 });
+        const s = (r == null ? void 0 : r.reason) || "Auto-skipped (posting unavailable or wrong group)";
+        await de(i, s), await x("POST_SKIPPED", { itemId: i, reason: s }), o.isPaused || (await P({ ...o, isRunning: !0 }), await $()), a({ success: !0 });
         break;
       }
       case "UPDATE_QUEUE_ITEM_CAPTION": {
         const o = t.payload;
         if (o != null && o.itemId && o.caption !== void 0) {
-          const s = (await B()).map((i) => i.id === o.itemId ? { ...i, caption: o.caption } : i);
-          await ee(s);
+          const i = (await B()).map((s) => s.id === o.itemId ? { ...s, caption: o.caption } : s);
+          await ee(i);
         }
         a({ success: !0 });
         break;
@@ -1322,57 +1307,57 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
           a({ success: !0, payload: null, isUserTab: !0 });
           return;
         }
-        const [r, s, i, d, m] = await Promise.all([
+        const [r, i, s, f, m] = await Promise.all([
           B(),
           D(),
           L(),
           J(),
           ce()
         ]);
-        let w = s.currentItemId && r.find((g) => g.id === s.currentItemId) || null;
+        let w = i.currentItemId && r.find((g) => g.id === i.currentItemId) || null;
         const u = ((n = e.tab) == null ? void 0 : n.url) || ((c = t.payload) == null ? void 0 : c.url) || "";
         if (!w && u) {
-          const g = i.find((h) => u.includes(h.groupId || "") || h.url && u.includes(h.url));
+          const g = s.find((h) => u.includes(h.groupId || "") || h.url && u.includes(h.url));
           g && (w = r.find((h) => h.groupId === g.id && (h.status === "READY" || h.status === "IN_PROGRESS" || h.status === "WAITING_FOR_USER")) || null);
         }
         if (!w) {
           a({ success: !0, payload: null });
           return;
         }
-        const f = i.find((g) => g.id === w.groupId) || null, I = d.find((g) => g.id === w.postId) || null;
-        let p = "";
+        const p = s.find((g) => g.id === w.groupId) || null, I = f.find((g) => g.id === w.postId) || null;
+        let d = "";
         if (w.caption)
-          p = R(w.caption);
+          d = R(w.caption);
         else if (I != null && I.caption)
-          p = R(I.caption);
+          d = R(I.caption);
         else if (I != null && I.description)
-          p = R(I.description);
+          d = R(I.description);
         else if (I) {
           const g = I.templateId ? m.find((h) => h.id === I.templateId) : void 0;
-          p = R(Re(I, g == null ? void 0 : g.content));
+          d = R(Re(I, g == null ? void 0 : g.content));
         }
-        p = Le(p);
+        d = Le(d);
         let k = !0;
-        if (f && u)
-          if (!!(e.tab && (e.tab.id === s.activeTabId || e.tab.id === y)))
+        if (p && u)
+          if (!!(e.tab && (e.tab.id === i.activeTabId || e.tab.id === y)))
             k = !0;
           else {
-            const h = (f.groupId || "").replace(/^grp_/, "").toLowerCase().trim(), S = (f.url || "").toLowerCase().replace(/^https?:\/\/(www\.|m\.|web\.)?/, "").replace(/\/$/, ""), C = u.toLowerCase().replace(/^https?:\/\/(www\.|m\.|web\.)?/, "").replace(/\/$/, ""), q = h ? C.includes(h) : !1, z = S ? C.includes(S) || S.includes(C) : !1;
+            const h = (p.groupId || "").replace(/^grp_/, "").toLowerCase().trim(), S = (p.url || "").toLowerCase().replace(/^https?:\/\/(www\.|m\.|web\.)?/, "").replace(/\/$/, ""), C = u.toLowerCase().replace(/^https?:\/\/(www\.|m\.|web\.)?/, "").replace(/\/$/, ""), q = h ? C.includes(h) : !1, z = S ? C.includes(S) || S.includes(C) : !1;
             (h || S) && (k = !!(q || z));
           }
         const b = r.findIndex((g) => g.id === w.id) + 1, l = r.filter((g) => g.status === "POSTED").length, A = {
           queueItem: w,
-          group: f,
+          group: p,
           post: I,
-          caption: p,
-          formattedPost: p,
+          caption: d,
+          formattedPost: d,
           media: w.media || (I == null ? void 0 : I.images) || [],
           queueIndex: b > 0 ? b : 1,
           totalQueueItems: r.length,
           postedCount: l,
           isGroupMatch: k,
-          expectedGroupName: f ? f.name : "Expected Group",
-          expectedGroupUrl: f ? f.url : ""
+          expectedGroupName: p ? p.name : "Expected Group",
+          expectedGroupUrl: p ? p.url : ""
         };
         a({ success: !0, payload: A });
         break;
@@ -1406,7 +1391,7 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
       }
       /* ================= AUTO-JOINER HANDLERS ================= */
       case "START_AUTO_JOIN": {
-        const o = t.payload || {}, r = _e(o.searchUrl || ""), s = {
+        const o = t.payload || {}, r = _e(o.searchUrl || ""), i = {
           searchUrl: r,
           delaySec: typeof o.delaySec == "number" ? Math.max(0, o.delaySec) : 0,
           maxGroups: typeof o.maxGroups == "number" ? o.maxGroups : 0,
@@ -1415,7 +1400,7 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
           saveToGroups: o.saveToGroups !== !1,
           selectedCategory: o.selectedCategory || "Auto Joined"
         };
-        await Se(s), await te({
+        await Se(i), await te({
           status: "SEARCHING",
           searchUrl: r,
           query: "",
@@ -1434,21 +1419,21 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
         }), await chrome.storage.local.set({
           agp_pending_auto_join: {
             active: !0,
-            config: s,
+            config: i,
             requestedAt: Date.now()
           }
         });
-        const i = await chrome.tabs.query({ url: ["*://*.facebook.com/*", "*://facebook.com/*"] });
-        let d = i.find((m) => m.url && m.url.includes("/search"));
-        if (!d && i.length > 0 && (d = i[0]), d && d.id) {
-          if (await chrome.tabs.update(d.id, { url: r, active: !0 }), d.windowId)
+        const s = await chrome.tabs.query({ url: ["*://*.facebook.com/*", "*://facebook.com/*"] });
+        let f = s.find((m) => m.url && m.url.includes("/search"));
+        if (!f && s.length > 0 && (f = s[0]), f && f.id) {
+          if (await chrome.tabs.update(f.id, { url: r, active: !0 }), f.windowId)
             try {
-              await chrome.windows.update(d.windowId, { focused: !0 });
+              await chrome.windows.update(f.windowId, { focused: !0 });
             } catch {
             }
         } else
-          d = await chrome.tabs.create({ url: r, active: !0 });
-        await T.info("background", `Started Auto-Join on: ${r}`), a({ success: !0, tabId: d == null ? void 0 : d.id, searchUrl: r });
+          f = await chrome.tabs.create({ url: r, active: !0 });
+        await T.info("background", `Started Auto-Join on: ${r}`), a({ success: !0, tabId: f == null ? void 0 : f.id, searchUrl: r });
         break;
       }
       case "PAUSE_AUTO_JOIN": {
@@ -1491,13 +1476,13 @@ chrome.runtime.onMessage.addListener((t, e, a) => ((async () => {
         if (o && o.group) {
           const r = await L();
           if (!r.some(
-            (i) => {
-              var d;
-              return i.groupId && i.groupId.toLowerCase() === ((d = o.group.groupId) == null ? void 0 : d.toLowerCase()) || i.url && o.group.url && i.url.toLowerCase() === o.group.url.toLowerCase();
+            (s) => {
+              var f;
+              return s.groupId && s.groupId.toLowerCase() === ((f = o.group.groupId) == null ? void 0 : f.toLowerCase()) || s.url && o.group.url && s.url.toLowerCase() === o.group.url.toLowerCase();
             }
           )) {
-            const i = [...r, o.group];
-            await X(i), await T.success("background", `Auto-joined group saved: "${o.group.name}" (Ready for posting)`), M("Facebook Group Added", `"${o.group.name}" is now saved and ready for posting.`);
+            const s = [...r, o.group];
+            await X(s), await T.success("background", `Auto-joined group saved: "${o.group.name}" (Ready for posting)`), M("Facebook Group Added", `"${o.group.name}" is now saved and ready for posting.`);
           }
         }
         a({ success: !0 });

@@ -78,6 +78,26 @@ async function copyText(text: string): Promise<boolean> {
 }
 
 /**
+ * Copies rich HTML and plain text to clipboard safely.
+ */
+async function copyRichText(plainText: string, htmlText: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && (window as any).ClipboardItem) {
+      const textBlob = new Blob([plainText], { type: 'text/plain' });
+      const htmlBlob = new Blob([htmlText], { type: 'text/html' });
+      await navigator.clipboard.write([
+        new (window as any).ClipboardItem({
+          'text/plain': textBlob,
+          'text/html': htmlBlob,
+        }),
+      ]);
+      return true;
+    }
+  } catch (_) {}
+  return copyText(plainText);
+}
+
+/**
  * Shows a toast notification on the Facebook page.
  * Works both with and without the shadow root helper panel.
  */
@@ -441,8 +461,8 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
 
   const lines = captionText.split('\n');
 
-  // Always copy resolved caption to clipboard first so user has immediate access
-  await copyText(captionText.trim());
+  // Always copy resolved rich HTML + plain text to clipboard first so user and editor have immediate access
+  await copyRichText(captionText.trim(), convertToRichHtml(captionText));
 
   let editor: HTMLElement | null = null;
   const start = Date.now();
@@ -591,39 +611,49 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
   const htmlParagraphs = convertToRichHtml(captionText);
 
   // Strategy 2: Native Paste Event with DataTransfer (text/plain + text/html)
-  // CRITICAL: Dispatch ONLY pasteEvent. Never dispatch paste + beforeinput together,
-  // as modern Lexical handles both and will duplicate the post!
   try {
-    const dt = new DataTransfer();
-    dt.setData('text/plain', captionText);
-    dt.setData('text/html', htmlParagraphs);
-
-    const pasteEvent = new ClipboardEvent('paste', {
-      bubbles: true,
-      cancelable: true,
-      clipboardData: dt,
-    });
-    editor.dispatchEvent(pasteEvent);
-
-    await sleep(80);
-
-    let textNow = (editor.textContent || '').trim();
-    // Only if pasteEvent was completely ignored, fallback to beforeinput
-    if (!textNow || textNow.length < 5) {
-      editor.dispatchEvent(new InputEvent('beforeinput', {
-        bubbles: true,
-        cancelable: true,
-        inputType: 'insertFromPaste',
-        dataTransfer: dt,
-      }));
+    // 2A: Attempt native trusted paste from system clipboard
+    const nativePasteOk = document.execCommand('paste');
+    if (nativePasteOk) {
       await sleep(60);
-      textNow = (editor.textContent || '').trim();
+      let textCheck = (editor.textContent || '').trim();
+      if (textCheck.length >= captionText.trim().length * 0.5) {
+        injectionSuccess = true;
+      }
     }
 
-    const pElements = editor.querySelectorAll('p');
-    if (textNow.length > 0 && (!captionText.includes('\n') || pElements.length > 1 || textNow.length >= captionText.trim().length * 0.7)) {
-      console.log('[AGP:AutoPost] Direct Native Paste event succeeded. Paragraph count:', pElements.length);
-      injectionSuccess = true;
+    if (!injectionSuccess) {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', captionText);
+      dt.setData('text/html', htmlParagraphs);
+
+      const pasteEvent = new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: dt,
+      });
+      editor.dispatchEvent(pasteEvent);
+
+      await sleep(80);
+
+      let textNow = (editor.textContent || '').trim();
+      // Only if pasteEvent was completely ignored, fallback to beforeinput
+      if (!textNow || textNow.length < 5) {
+        editor.dispatchEvent(new InputEvent('beforeinput', {
+          bubbles: true,
+          cancelable: true,
+          inputType: 'insertFromPaste',
+          dataTransfer: dt,
+        }));
+        await sleep(60);
+        textNow = (editor.textContent || '').trim();
+      }
+
+      const pElements = editor.querySelectorAll('p');
+      if (textNow.length > 0 && (!captionText.includes('\n') || pElements.length > 1 || textNow.length >= captionText.trim().length * 0.5)) {
+        console.log('[AGP:AutoPost] Direct Native Paste event succeeded. Paragraph count:', pElements.length);
+        injectionSuccess = true;
+      }
     }
   } catch (err) {
     console.warn('[AGP:AutoPost] Native paste event error:', err);
@@ -2389,11 +2419,12 @@ function renderHelperPanel() {
           ✅ Mark Posted & Next Group
         </button>
 
-        <div class="button-grid">
+        <div class="button-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
           <button class="action-btn" id="btn-toggle-caption">
-            ${isCaptionExpanded ? 'Collapse' : '👁️ View Caption'}
+            ${isCaptionExpanded ? 'Collapse' : '👁️ View'}
           </button>
-          <button class="action-btn" id="btn-copy-caption">✍️ Copy Caption</button>
+          <button class="action-btn" id="btn-copy-caption">📋 Copy</button>
+          <button class="action-btn" id="btn-paste-caption" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff; font-weight: bold;" title="ক্যাপশন সরাসরি পোস্টে পেস্ট করুন">✨ Paste to FB</button>
         </div>
 
         <div class="workflow-row">
@@ -2451,7 +2482,21 @@ function renderHelperPanel() {
   shadowRoot.getElementById('btn-copy-caption')?.addEventListener('click', async () => {
     const text = rawCaption || formattedPost;
     const resolved = resolveSpintax(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-    if (await copyText(resolved)) showToast('Caption copied to clipboard!');
+    const rich = convertToRichHtml(resolved);
+    if (await copyRichText(resolved, rich)) showToast('📋 Caption & Design copied (Ctrl+V ready)!');
+  });
+
+  shadowRoot.getElementById('btn-paste-caption')?.addEventListener('click', async () => {
+    const text = rawCaption || formattedPost;
+    const resolved = resolveSpintax(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    const modal = document.querySelector<HTMLElement>('[role="dialog"]') || document.body;
+    showToast('✨ Pasting caption with exact styling...');
+    const ok = await injectCaptionIntoEditor(modal, resolved);
+    if (ok) {
+      showToast('✅ Caption pasted with exact design!');
+    } else {
+      showToast('⚠️ Click inside post box and press Ctrl+V', true);
+    }
   });
 
   shadowRoot.getElementById('btn-mark-posted')?.addEventListener('click', () => {
