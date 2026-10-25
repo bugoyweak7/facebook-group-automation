@@ -8,6 +8,10 @@ import {
   Check,
   CheckCircle2,
   X,
+  ListPlus,
+  Layers,
+  ClipboardPaste,
+  Copy,
 } from 'lucide-react';
 import { getDiscoveryProgress } from '../../services/facebook/discovery-manager';
 import { getFacebookAccount } from '../../services/storage/chrome-storage';
@@ -15,6 +19,12 @@ import { useToast } from '../common/Toast';
 import { validateFacebookGroupUrl } from '../../utils/validators';
 import { generateId } from '../../utils/helpers';
 import { UpdateModal } from '../common/UpdateModal';
+import {
+  parseBulkGroupText,
+  exportGroupsToJson,
+  SAMPLE_10_GROUPS_TEXT,
+  SAMPLE_20_GROUPS_TEXT,
+} from '../../services/groups/bulk-group-importer';
 
 export interface SelectGroupsModalProps {
   isOpen: boolean;
@@ -43,6 +53,7 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [foundCount, setFoundCount] = useState<number>(0);
   const [importText, setImportText] = useState('');
+  const [importCategory, setImportCategory] = useState('Imported');
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
   // Sync initial selected IDs when modal opens
@@ -153,6 +164,13 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
     setSelectedIdsOrder([]);
   };
 
+  // Quick Select 10 / 20 groups
+  const handleSelectBatch = (count: number) => {
+    const targetGroups = filteredGroups.slice(0, count);
+    const ids = targetGroups.map(g => g.id);
+    setSelectedIdsOrder(ids);
+  };
+
   // Filter groups
   const filteredGroups = groups.filter(g =>
     searchTerm === '' ||
@@ -215,54 +233,27 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
     }
   };
 
-  // Import links handler
+  // Import links handler using robust bulk parser
   const handleImportLinks = async () => {
-    const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
-    if (lines.length === 0) {
+    if (!importText.trim()) {
       toast.warning('Please enter at least one Facebook group link.');
       return;
     }
 
-    const imported: Group[] = [];
-    const now = Date.now();
-
-    for (const line of lines) {
-      const val = validateFacebookGroupUrl(line);
-      if (val.valid && val.groupId) {
-        // Check if not already exists
-        const exists = groups.find(
-          g => g.groupId?.toLowerCase() === val.groupId?.toLowerCase() || g.url.toLowerCase() === (val.cleanUrl || line).toLowerCase()
-        );
-        if (!exists) {
-          imported.push({
-            id: generateId('grp'),
-            name: val.groupId.replace(/[-_.]+/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            url: val.cleanUrl || line,
-            groupId: val.groupId,
-            category: 'Imported',
-            privacy: 'UNKNOWN',
-            enabled: true,
-            selected: true,
-            status: 'READY',
-            postCount: 0,
-            verified: true,
-            source: 'import',
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-      }
+    const summary = parseBulkGroupText(importText, groups, importCategory, 'PUBLIC', true);
+    if (summary.groupsToCreate.length === 0) {
+      toast.info('No new valid groups were found. They may already exist or be invalid.');
+      return;
     }
 
-    if (imported.length > 0 && onSaveGroups) {
-      await onSaveGroups([...imported, ...groups]);
+    if (onSaveGroups) {
+      await onSaveGroups([...summary.groupsToCreate, ...groups]);
       // Select imported ones
-      setSelectedIdsOrder(prev => [...imported.map(g => g.id), ...prev]);
-      toast.success(`Imported and added ${imported.length} groups!`);
+      const importedIds = summary.groupsToCreate.map(g => g.id);
+      setSelectedIdsOrder(prev => [...importedIds, ...prev]);
+      toast.success(`Imported and added ${summary.groupsToCreate.length} groups!`);
       setImportText('');
       setActiveTab('my-groups');
-    } else if (imported.length === 0) {
-      toast.info('No new valid groups were found in the text.');
     }
   };
 
@@ -328,8 +319,8 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
                 : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
             }`}
           >
-            <LinkIcon size={16} />
-            <span>Import Links</span>
+            <ListPlus size={16} />
+            <span>Bulk Add (10/20+)</span>
           </button>
         </div>
 
@@ -415,20 +406,28 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
                   />
                 </div>
 
-                {/* Controls Row: Select All | Clear All & Groups count */}
+                {/* Controls Row: Select All | 10 | 20 | Clear All & Groups count */}
                 <div className="flex items-center justify-between text-xs pt-1">
                   <div className="flex items-center gap-1.5 font-medium text-blue-600 dark:text-blue-400">
                     <button onClick={handleSelectAll} className="hover:underline">
-                      Select All
+                      All
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <button onClick={() => handleSelectBatch(10)} className="hover:underline" title="Select first 10 groups">
+                      10
+                    </button>
+                    <span className="text-slate-300 dark:text-slate-700">|</span>
+                    <button onClick={() => handleSelectBatch(20)} className="hover:underline" title="Select first 20 groups">
+                      20
                     </button>
                     <span className="text-slate-300 dark:text-slate-700">|</span>
                     <button onClick={handleClearAll} className="hover:underline text-slate-500 dark:text-slate-400">
-                      Clear All
+                      Clear
                     </button>
                   </div>
 
                   <span className="text-slate-500 dark:text-slate-400 text-xs">
-                    Groups count {selectedCount}/{groups.length}
+                    Selected {selectedCount}/{groups.length}
                   </span>
                 </div>
 
@@ -511,27 +510,90 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
           </div>
         )}
 
-        {/* Tab 2: Import Links */}
+        {/* Tab 2: Bulk Add (10/20+) */}
         {activeTab === 'import-links' && (
           <div className="p-4 flex-1 overflow-y-auto space-y-3">
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-              Paste Facebook Group URLs below (one link per line):
+            {/* Presets Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setImportText(SAMPLE_10_GROUPS_TEXT)}
+                  className="px-2 py-0.5 text-[11px] font-semibold rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-all active:scale-95"
+                >
+                  +10 Groups
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportText(SAMPLE_20_GROUPS_TEXT)}
+                  className="px-2 py-0.5 text-[11px] font-semibold rounded bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 transition-all active:scale-95"
+                >
+                  +20 Groups
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text?.trim()) {
+                      setImportText(prev => (prev.trim() ? prev + '\n' + text.trim() : text.trim()));
+                      toast.success('Pasted from clipboard!');
+                    }
+                  } catch {
+                    toast.error('Could not access clipboard');
+                  }
+                }}
+                className="px-2 py-0.5 text-[11px] font-semibold rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition-all flex items-center gap-1"
+              >
+                <ClipboardPaste size={11} />
+                <span>Paste</span>
+              </button>
+
+              {groups.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const json = exportGroupsToJson(groups);
+                    await navigator.clipboard.writeText(json);
+                    toast.success(`Copied JSON of ${groups.length} groups!`);
+                  }}
+                  className="px-2 py-0.5 text-[11px] font-semibold rounded bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1 active:scale-95"
+                  title="Copy current groups as JSON"
+                >
+                  <Copy size={11} />
+                  <span>Copy JSON</span>
+                </button>
+              )}
             </div>
 
             <textarea
-              rows={8}
+              rows={7}
               value={importText}
               onChange={e => setImportText(e.target.value)}
-              placeholder="https://www.facebook.com/groups/examplegroup1/&#10;https://facebook.com/groups/123456789/&#10;https://www.facebook.com/groups/examplegroup2/"
-              className="w-full p-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono resize-none leading-relaxed"
+              placeholder="Paste Facebook group links, or paste JSON code from another device:&#10;https://www.facebook.com/groups/dhakasell/&#10;or [ { &quot;name&quot;: &quot;...&quot;, &quot;url&quot;: &quot;...&quot; } ]"
+              className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono resize-none leading-relaxed"
             />
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 flex-shrink-0">Category:</span>
+              <input
+                type="text"
+                value={importCategory}
+                onChange={e => setImportCategory(e.target.value)}
+                placeholder="Category name"
+                className="flex-1 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+              />
+            </div>
 
             <button
               onClick={handleImportLinks}
               disabled={!importText.trim()}
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm"
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center gap-1.5"
             >
-              Import Groups
+              <ListPlus size={14} />
+              <span>Bulk Import Groups</span>
             </button>
           </div>
         )}

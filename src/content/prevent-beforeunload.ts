@@ -137,11 +137,18 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
 
         if (sel) {
           const range = document.createRange();
-          range.selectNodeContents(editor);
+          const targetNode = editor.querySelector('p') || editor;
+          if (targetNode.childNodes.length > 0) {
+            range.setStart(targetNode, 0);
+            range.setEnd(targetNode, targetNode.childNodes.length);
+          } else {
+            range.selectNodeContents(targetNode);
+          }
           range.collapse(true);
           sel.removeAllRanges();
           sel.addRange(range);
         }
+        document.dispatchEvent(new Event('selectionchange'));
 
         // Prepare rich multi-line HTML preserving all paragraphs, bullets, and styled formatting
         const htmlParagraphs = convertToRichHtml(caption);
@@ -163,7 +170,7 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
             if (pasteOk) {
               await new Promise(function (r) { setTimeout(r, 60); });
               const checkText = (editor.textContent || '').trim();
-              if (checkText.length >= caption.trim().length * 0.5) {
+              if (checkText.length >= caption.trim().length * 0.4) {
                 injected = true;
               }
             }
@@ -184,10 +191,18 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
             });
             editor.dispatchEvent(pasteEvent);
 
+            // Direct Lexical instance integration in MAIN world
+            const lexicalEditor = (editor as any).__lexicalEditor;
+            if (lexicalEditor && typeof lexicalEditor.dispatchCommand === 'function') {
+              try {
+                lexicalEditor.dispatchCommand(16, pasteEvent);
+              } catch (_) {}
+            }
+
             await new Promise(function (r) { setTimeout(r, 80); });
             let textAfter = (editor.textContent || '').trim();
 
-            // Only fallback to beforeinput if pasteEvent was completely ignored
+            // Fallback 1: beforeinput with insertFromPaste
             if (!textAfter || textAfter.length < 5) {
               editor.dispatchEvent(new InputEvent('beforeinput', {
                 bubbles: true,
@@ -199,8 +214,18 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
               textAfter = (editor.textContent || '').trim();
             }
 
-            const pElements = editor.querySelectorAll('p');
-            if (textAfter.length > 0 && (!caption.includes('\n') || pElements.length > 1 || textAfter.length >= caption.trim().length * 0.5)) {
+            // Fallback 2: document.execCommand insertHTML
+            if (!textAfter || textAfter.length < 5) {
+              try {
+                document.execCommand('insertHTML', false, htmlParagraphs);
+                await new Promise(function (r) { setTimeout(r, 60); });
+                textAfter = (editor.textContent || '').trim();
+              } catch (_) {}
+            }
+
+            const blockElements = editor.querySelectorAll('p, h1, h2, h3, ul, ol, li, blockquote');
+            const hasRichBlocks = editor.querySelectorAll('h1, h2, ul, ol, blockquote').length > 0;
+            if (textAfter.length > 0 && (!caption.includes('\n') || blockElements.length > 1 || hasRichBlocks || textAfter.length >= caption.trim().length * 0.4)) {
               injected = true;
             }
           } catch (_) {}

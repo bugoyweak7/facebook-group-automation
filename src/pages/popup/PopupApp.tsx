@@ -63,14 +63,21 @@ import {
   Tag,
   Minus,
   ListOrdered,
+  ListPlus,
+  Layers,
+  ClipboardPaste,
   Quote,
+  FileCode2,
+  Copy,
 } from 'lucide-react';
 import { validateFacebookGroupUrl } from '../../utils/validators';
-import { generateId } from '../../utils/helpers';
+import { generateId, copyToClipboard } from '../../utils/helpers';
 import { aiService } from '../../services/ai/ai-service';
 import {
   applyTextStyle,
   applyBulletList,
+  applyBold,
+  applyItalic,
   applyCustomList,
   applyHeading,
   applyNumberedList,
@@ -96,6 +103,12 @@ import {
   getCurrentCommitSha,
   checkJustReloaded,
 } from '../../services/updater/extension-updater';
+import {
+  parseBulkGroupText,
+  exportGroupsToJson,
+  SAMPLE_10_GROUPS_TEXT,
+  SAMPLE_20_GROUPS_TEXT,
+} from '../../services/groups/bulk-group-importer';
 
 export const PopupApp: React.FC = () => {
   // Navigation views: 'select-groups' | 'compose' | 'posting-queue'
@@ -121,6 +134,7 @@ export const PopupApp: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIdsOrder, setSelectedIdsOrder] = useState<string[]>([]);
   const [importText, setImportText] = useState('');
+  const [importCategory, setImportCategory] = useState('Imported');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Update System State
@@ -182,6 +196,66 @@ export const PopupApp: React.FC = () => {
       setCaption(applyTextStyle(caption, style));
       showToast(`Applied ${style}!`);
     }
+  };
+
+  const handleApplyBold = () => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => applyBold(prev));
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const isBold = selected.startsWith('**') && selected.endsWith('**') && selected.length >= 4;
+      const transformed = isBold ? selected.slice(2, -2) : `**${selected}**`;
+      const nextCaption = caption.substring(0, start) + transformed + caption.substring(end);
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + transformed.length);
+      }, 0);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      setCaption(before + '****' + after);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + 2, start + 2);
+      }, 0);
+    }
+    showToast('𝐁 Bold (**text**)');
+  };
+
+  const handleApplyItalic = () => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => applyItalic(prev));
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const isItalic = selected.startsWith('*') && selected.endsWith('*') && selected.length >= 2 && !selected.startsWith('**');
+      const transformed = isItalic ? selected.slice(1, -1) : `*${selected}*`;
+      const nextCaption = caption.substring(0, start) + transformed + caption.substring(end);
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + transformed.length);
+      }, 0);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      setCaption(before + '**' + after);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + 1, start + 1);
+      }, 0);
+    }
+    showToast('𝘐 Italic (*text*)');
   };
 
   const handleApplyHeading = (level: 1 | 2) => {
@@ -356,6 +430,37 @@ export const PopupApp: React.FC = () => {
     }, 0);
   };
 
+  const renderInlineFormatted = (content: string): React.ReactNode => {
+    if (!content) return '';
+    const parts: React.ReactNode[] = [];
+    const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|~~[^~]+~~|<u>[^<]+<\/u>|<code>[^<]+<\/code>)/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(content)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(content.substring(lastIndex, match.index));
+      }
+      const token = match[0];
+      if (token.startsWith('**') && token.endsWith('**')) {
+        parts.push(<strong key={match.index} className="font-bold text-slate-900 dark:text-white">{token.slice(2, -2)}</strong>);
+      } else if (token.startsWith('*') && token.endsWith('*')) {
+        parts.push(<em key={match.index} className="italic text-slate-800 dark:text-slate-200">{token.slice(1, -1)}</em>);
+      } else if (token.startsWith('~~') && token.endsWith('~~')) {
+        parts.push(<s key={match.index} className="line-through text-slate-400">{token.slice(2, -2)}</s>);
+      } else if (token.startsWith('<u>') && token.endsWith('</u>')) {
+        parts.push(<u key={match.index} className="underline">{token.slice(3, -4)}</u>);
+      } else if (token.startsWith('<code>') && token.endsWith('</code>')) {
+        parts.push(<code key={match.index} className="px-1 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[11px]">{token.slice(6, -7)}</code>);
+      }
+      lastIndex = regex.lastIndex;
+    }
+    if (lastIndex < content.length) {
+      parts.push(content.substring(lastIndex));
+    }
+    return parts.length > 0 ? parts : content;
+  };
+
   const renderPreviewCaption = (text: string) => {
     if (!text || !text.trim()) {
       return (
@@ -371,21 +476,21 @@ export const PopupApp: React.FC = () => {
       if (trimmed.startsWith('# ')) {
         return (
           <h1 key={idx} className="text-base font-extrabold text-slate-900 dark:text-white pt-1 tracking-tight">
-            {trimmed.replace(/^#\s*/, '')}
+            {renderInlineFormatted(trimmed.replace(/^#\s*/, ''))}
           </h1>
         );
       }
-      if (trimmed.startsWith('## ')) {
+      if (trimmed.startsWith('## ') || trimmed.startsWith('### ')) {
         return (
           <h2 key={idx} className="text-sm font-bold text-slate-800 dark:text-slate-100 pt-0.5">
-            {trimmed.replace(/^##\s*/, '')}
+            {renderInlineFormatted(trimmed.replace(/^#{2,3}\s*/, ''))}
           </h2>
         );
       }
       if (trimmed.startsWith('> ') || trimmed.startsWith('❝')) {
         return (
           <blockquote key={idx} className="border-l-4 border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 pl-2.5 py-1 text-slate-700 dark:text-slate-200 rounded-r font-medium my-1">
-            {trimmed.replace(/^>\s*/, '').replace(/^[❝❞]\s*/, '')}
+            {renderInlineFormatted(trimmed.replace(/^>\s*/, '').replace(/^[❝❞]\s*/, ''))}
           </blockquote>
         );
       }
@@ -394,7 +499,7 @@ export const PopupApp: React.FC = () => {
         return (
           <div key={idx} className="flex items-start gap-1.5 pl-2">
             <span className="text-blue-500 font-bold flex-shrink-0">{marker ? marker[1] : '•'}</span>
-            <span>{marker ? marker[2] : trimmed}</span>
+            <span>{renderInlineFormatted(marker ? marker[2] : trimmed)}</span>
           </div>
         );
       }
@@ -403,7 +508,7 @@ export const PopupApp: React.FC = () => {
         return (
           <div key={idx} className="flex items-start gap-1.5 pl-2">
             <span className="text-blue-600 dark:text-blue-400 font-bold text-[11px] flex-shrink-0">{marker ? `${marker[1]}.` : '1.'}</span>
-            <span>{marker ? marker[2] : trimmed}</span>
+            <span>{renderInlineFormatted(marker ? marker[2] : trimmed)}</span>
           </div>
         );
       }
@@ -416,7 +521,7 @@ export const PopupApp: React.FC = () => {
       }
       return (
         <div key={idx} className="whitespace-pre-wrap">
-          {line}
+          {renderInlineFormatted(line)}
         </div>
       );
     });
@@ -436,18 +541,19 @@ export const PopupApp: React.FC = () => {
     const htmlData = e.clipboardData.getData('text/html');
     const plainText = e.clipboardData.getData('text/plain');
 
-    if (
+    const hasRichHtml = Boolean(
       htmlData &&
-      (htmlData.includes('<i>') ||
-        htmlData.includes('<em>') ||
-        htmlData.includes('<b>') ||
-        htmlData.includes('<strong>') ||
-        htmlData.includes('<li>') ||
-        htmlData.includes('font-style'))
-    ) {
-      let styled = htmlToStyledText(htmlData);
+      (/<(h[1-6]|ul|ol|li|blockquote|strong|b|em|i|s|del|strike|u|code)[\s>]/i.test(htmlData) ||
+        htmlData.includes('data-lexical') ||
+        htmlData.includes('font-weight') ||
+        htmlData.includes('font-style') ||
+        htmlData.includes('text-decoration'))
+    );
+
+    if (hasRichHtml) {
+      let styled = htmlToStyledText(htmlData, { preferMarkdown: true });
       styled = deduplicateRepeatedCaption(styled);
-      if (styled && styled.length > 0) {
+      if (styled && styled.trim().length > 0) {
         e.preventDefault();
         const el = textareaRef.current;
         if (!el) return;
@@ -460,7 +566,8 @@ export const PopupApp: React.FC = () => {
           el.focus();
           el.setSelectionRange(start + styled.length, start + styled.length);
         }, 0);
-        showToast('Pasted with design preserved!');
+        showToast('✨ Pasted with exact design preserved!');
+        return;
       }
     } else if (plainText) {
       const deduplicatedPlain = deduplicateRepeatedCaption(plainText);
@@ -770,6 +877,22 @@ export const PopupApp: React.FC = () => {
     setGroupsState(updatedGroups);
   };
 
+  // Quick Select 10 / 20 groups
+  const handleSelectBatch = async (count: number) => {
+    const targetGroups = filteredGroups.slice(0, count);
+    const targetIds = targetGroups.map(g => g.id);
+    setSelectedIdsOrder(targetIds);
+
+    const updatedGroups = groups.map(g => ({
+      ...g,
+      selected: targetIds.includes(g.id),
+      updatedAt: Date.now(),
+    }));
+    await setGroups(updatedGroups);
+    setGroupsState(updatedGroups);
+    showToast(`Selected first ${targetIds.length} groups`);
+  };
+
   const handleSaveAsList = async () => {
     if (selectedIdsOrder.length === 0) {
       showToast('Please select groups first');
@@ -807,53 +930,25 @@ export const PopupApp: React.FC = () => {
   };
 
   const handleImportLinks = async () => {
-    const lines = importText.split('\n').map(l => l.trim()).filter(Boolean);
-    if (lines.length === 0) {
-      showToast('Enter at least 1 group URL');
+    if (!importText.trim()) {
+      showToast('Enter group URLs or paste list');
       return;
     }
 
-    const imported: Group[] = [];
-    const now = Date.now();
-
-    for (const line of lines) {
-      const val = validateFacebookGroupUrl(line);
-      if (val.valid && val.groupId) {
-        const exists = groups.find(
-          g => g.groupId?.toLowerCase() === val.groupId?.toLowerCase() || g.url.toLowerCase() === (val.cleanUrl || line).toLowerCase()
-        );
-        if (!exists) {
-          imported.push({
-            id: generateId('grp'),
-            name: val.groupId.replace(/[-_.]+/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-            url: val.cleanUrl || line,
-            groupId: val.groupId,
-            category: 'Imported',
-            privacy: 'UNKNOWN',
-            enabled: true,
-            selected: true,
-            status: 'READY',
-            postCount: 0,
-            verified: true,
-            source: 'import',
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-      }
-    }
-
-    if (imported.length > 0) {
-      const updated = [...imported, ...groups];
-      await setGroups(updated);
-      setGroupsState(updated);
-      setSelectedIdsOrder(prev => [...imported.map(g => g.id), ...prev]);
-      setImportText('');
-      setActiveTab('my-groups');
-      showToast(`Imported ${imported.length} groups!`);
-    } else {
+    const summary = parseBulkGroupText(importText, groups, importCategory, 'PUBLIC', true);
+    if (summary.groupsToCreate.length === 0) {
       showToast('No new valid groups found');
+      return;
     }
+
+    const updated = [...summary.groupsToCreate, ...groups];
+    await setGroups(updated);
+    setGroupsState(updated);
+    const newIds = summary.groupsToCreate.map(g => g.id);
+    setSelectedIdsOrder(prev => [...newIds, ...prev]);
+    setImportText('');
+    setActiveTab('my-groups');
+    showToast(`Imported ${summary.groupsToCreate.length} groups!`);
   };
 
   // Composer Media Upload Handlers
@@ -1234,6 +1329,25 @@ export const PopupApp: React.FC = () => {
                 </button>
               )}
               <button
+                type="button"
+                onClick={async () => {
+                  if (groups.length === 0) {
+                    showToast('No groups to copy');
+                    return;
+                  }
+                  const json = exportGroupsToJson(groups, account?.name);
+                  if (await copyToClipboard(json)) {
+                    showToast(`Copied ${groups.length} groups JSON!`);
+                  }
+                }}
+                className="text-xs text-amber-500 hover:text-amber-400 flex items-center gap-1 font-semibold transition-colors"
+                title="Copy all groups JSON to paste on another device"
+              >
+                <FileCode2 size={13} />
+                <span>Copy JSON</span>
+              </button>
+
+              <button
                 onClick={() => openDashboard()}
                 className="text-xs text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 font-semibold transition-colors"
                 title="Open Full Dashboard"
@@ -1281,8 +1395,8 @@ export const PopupApp: React.FC = () => {
                   : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200'
               }`}
             >
-              <LinkIcon size={14} />
-              <span>Import Links</span>
+              <ListPlus size={14} />
+              <span>Bulk Add (10/20+)</span>
             </button>
           </div>
 
@@ -1366,20 +1480,28 @@ export const PopupApp: React.FC = () => {
                     />
                   </div>
 
-                  {/* Controls Row */}
+                  {/* Controls Row: Select All | 10 | 20 | Clear All */}
                   <div className="flex items-center justify-between text-[11px] pt-0.5">
                     <div className="flex items-center gap-1.5 font-medium text-blue-600 dark:text-blue-400">
                       <button onClick={handleSelectAll} className="hover:underline">
-                        Select All
+                        All
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <button onClick={() => handleSelectBatch(10)} className="hover:underline" title="Select first 10 groups">
+                        10
+                      </button>
+                      <span className="text-slate-300 dark:text-slate-700">|</span>
+                      <button onClick={() => handleSelectBatch(20)} className="hover:underline" title="Select first 20 groups">
+                        20
                       </button>
                       <span className="text-slate-300 dark:text-slate-700">|</span>
                       <button onClick={handleClearAll} className="hover:underline text-slate-500 dark:text-slate-400">
-                        Clear All
+                        Clear
                       </button>
                     </div>
 
                     <span className="text-slate-500 dark:text-slate-400 font-medium">
-                      Groups count {selectedCount}/{groups.length}
+                      Selected {selectedCount}/{groups.length}
                     </span>
                   </div>
 
@@ -1690,27 +1812,91 @@ export const PopupApp: React.FC = () => {
             </div>
           )}
 
-          {/* Tab 3: Import Links Content */}
+          {/* Tab 3: Bulk Add (10/20+) Content */}
           {activeTab === 'import-links' && (
             <div className="p-4 flex-1 overflow-y-auto space-y-2.5">
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                Paste Facebook Group URLs below (one per line):
+              {/* Presets Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setImportText(SAMPLE_10_GROUPS_TEXT)}
+                    className="px-2 py-0.5 text-[11px] font-semibold rounded bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 transition-all active:scale-95"
+                  >
+                    +10 Groups
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImportText(SAMPLE_20_GROUPS_TEXT)}
+                    className="px-2 py-0.5 text-[11px] font-semibold rounded bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 transition-all active:scale-95"
+                  >
+                    +20 Groups
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText();
+                      if (text?.trim()) {
+                        setImportText(prev => (prev.trim() ? prev + '\n' + text.trim() : text.trim()));
+                        showToast('Pasted from clipboard!');
+                      }
+                    } catch {
+                      showToast('Could not access clipboard');
+                    }
+                  }}
+                  className="px-2 py-0.5 text-[11px] font-semibold rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700 transition-all flex items-center gap-1"
+                >
+                  <ClipboardPaste size={11} />
+                  <span>Paste</span>
+                </button>
+
+                {groups.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const json = exportGroupsToJson(groups, account?.name);
+                      if (await copyToClipboard(json)) {
+                        showToast(`Copied ${groups.length} groups JSON!`);
+                      }
+                    }}
+                    className="px-2 py-0.5 text-[11px] font-semibold rounded bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800 transition-all flex items-center gap-1 active:scale-95"
+                    title="Copy current groups as JSON for other devices"
+                  >
+                    <Copy size={11} />
+                    <span>Copy JSON</span>
+                  </button>
+                )}
               </div>
 
               <textarea
                 rows={6}
                 value={importText}
                 onChange={e => setImportText(e.target.value)}
-                placeholder="https://www.facebook.com/groups/examplegroup1/&#10;https://facebook.com/groups/123456789/"
+                placeholder="Paste Facebook group links, or paste JSON code from another device:&#10;https://www.facebook.com/groups/dhakasell/&#10;or [ { &quot;name&quot;: &quot;...&quot;, &quot;url&quot;: &quot;...&quot; } ]"
                 className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono resize-none leading-relaxed"
               />
+
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400 flex-shrink-0">Category:</span>
+                <input
+                  type="text"
+                  value={importCategory}
+                  onChange={e => setImportCategory(e.target.value)}
+                  placeholder="Category"
+                  className="flex-1 px-2.5 py-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:border-blue-500"
+                />
+              </div>
 
               <button
                 onClick={handleImportLinks}
                 disabled={!importText.trim()}
-                className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-sm"
+                className="w-full py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5"
               >
-                Import Groups
+                <ListPlus size={14} />
+                <span>Bulk Import Groups</span>
               </button>
             </div>
           )}
@@ -1832,18 +2018,18 @@ export const PopupApp: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => handleApplyStyle('sans-bold')}
+                    onClick={handleApplyBold}
                     className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-800 dark:text-slate-100"
-                    title="Bold font (e.g. 𝘀𝗮𝗹𝗲)"
+                    title="Bold font (**text** - Works for Bengali, English, Emojis)"
                   >
                     <span className="font-bold">𝐁</span> Bold
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => handleApplyStyle('sans-italic')}
+                    onClick={handleApplyItalic}
                     className="px-2 py-0.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-blue-500 rounded font-bold text-slate-800 dark:text-slate-100"
-                    title="Italic font (e.g. 𝘴𝘢𝘭𝘦)"
+                    title="Italic font (*text*)"
                   >
                     <span className="italic font-serif">𝘐</span> Italic
                   </button>

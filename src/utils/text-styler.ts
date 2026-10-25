@@ -446,6 +446,31 @@ export function applyHeading(text: string, level: 1 | 2 = 1): string {
 }
 
 /**
+ * Applies Facebook-compatible native Markdown Bold (**text**)
+ * Works seamlessly across Bengali, English, Emojis, and all scripts.
+ */
+export function applyBold(text: string): string {
+  if (!text) return '****';
+  const trimmed = text.trim();
+  if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length >= 4) {
+    return trimmed.slice(2, -2);
+  }
+  return `**${text}**`;
+}
+
+/**
+ * Applies Facebook-compatible native Markdown Italic (*text*)
+ */
+export function applyItalic(text: string): string {
+  if (!text) return '**';
+  const trimmed = text.trim();
+  if (trimmed.startsWith('*') && trimmed.endsWith('*') && trimmed.length >= 2 && !trimmed.startsWith('**')) {
+    return trimmed.slice(1, -1);
+  }
+  return `*${text}*`;
+}
+
+/**
  * Applies Facebook Group Numbered List style (1. Item, 2. Item...)
  */
 export function applyNumberedList(text: string): string {
@@ -620,24 +645,27 @@ export function convertToRichHtml(caption: string): string {
       continue;
     }
 
-    // Check for Heading 1 (# Heading or h1: Heading)
-    const h1Match = trimmed.match(/^#\s+(.+)$/) || trimmed.match(/^h1:\s*(.+)$/i);
+    // Check for raw HTML Heading 1 or Markdown Heading 1
+    const rawH1 = trimmed.match(/^<h1\b[^>]*>(.*?)<\/h1>$/i);
+    const h1Match = rawH1 || trimmed.match(/^#\s+(.+)$/) || trimmed.match(/^h1:\s*(.+)$/i);
     if (h1Match) {
       flushAll();
       htmlParts.push(`<h1>${formatInlineFormatting(h1Match[1])}</h1>`);
       continue;
     }
 
-    // Check for Heading 2 (## Subheading or h2: Subheading)
-    const h2Match = trimmed.match(/^##\s+(.+)$/) || trimmed.match(/^h2:\s*(.+)$/i);
+    // Check for raw HTML Heading 2/3 or Markdown Heading 2/3
+    const rawH2 = trimmed.match(/^<h[23]\b[^>]*>(.*?)<\/h[23]>$/i);
+    const h2Match = rawH2 || trimmed.match(/^##\s+(.+)$/) || trimmed.match(/^###\s+(.+)$/) || trimmed.match(/^h[23]:\s*(.+)$/i);
     if (h2Match) {
       flushAll();
       htmlParts.push(`<h2>${formatInlineFormatting(h2Match[1])}</h2>`);
       continue;
     }
 
-    // Check for Blockquote (> Quote or ❝ Quote ❞)
-    const quoteMatch = trimmed.match(/^>\s*(.+)$/) || trimmed.match(/^[❝❞]\s*(.+?)[❝❞]?$/);
+    // Check for Blockquote (> Quote or ❝ Quote ❞ or <blockquote>)
+    const rawQuote = trimmed.match(/^<blockquote\b[^>]*>(.*?)<\/blockquote>$/i);
+    const quoteMatch = rawQuote || trimmed.match(/^>\s*(.+)$/) || trimmed.match(/^[❝❞]\s*(.+?)[❝❞]?$/);
     if (quoteMatch) {
       flushBulletList();
       flushNumberedList();
@@ -656,8 +684,9 @@ export function convertToRichHtml(caption: string): string {
       continue;
     }
 
-    // Check if line is a bullet item
-    const bulletMatch = trimmed.match(/^[•✓✔➤➔★⭐◆❖]\s*(.*)$/) || trimmed.match(/^[\-*–—]\s+(.*)$/);
+    // Check if line is a bullet item (•, -, *, ✓, or <li>)
+    const rawLi = trimmed.match(/^<li\b[^>]*>(.*?)<\/li>$/i);
+    const bulletMatch = rawLi || trimmed.match(/^[•✓✔➤➔★⭐◆❖]\s*(.*)$/) || trimmed.match(/^[\-*–—]\s+(.*)$/);
     if (bulletMatch) {
       flushNumberedList();
       flushQuote();
@@ -716,8 +745,20 @@ function formatInlineFormatting(text: string): string {
   return html;
 }
 
-export function htmlToStyledText(html: string): string {
+export interface HtmlToStyledTextOptions {
+  preferMarkdown?: boolean;
+  mode?: 'markdown' | 'unicode';
+}
+
+export function htmlToStyledText(html: string, options?: HtmlToStyledTextOptions): string {
   if (!html || !html.trim()) return '';
+
+  const preferMarkdown = options?.preferMarkdown ?? (
+    /<(h[1-6]|blockquote|ol)[\s>]/i.test(html) ||
+    /data-lexical/i.test(html) ||
+    /[\u0980-\u09FF]/.test(html) ||
+    options?.mode === 'markdown'
+  );
 
   if (typeof DOMParser !== 'undefined') {
     try {
@@ -725,54 +766,226 @@ export function htmlToStyledText(html: string): string {
       const doc = parser.parseFromString(html, 'text/html');
 
       if (doc && doc.body) {
-        doc.querySelectorAll('i, em, span[style*="italic"]').forEach(el => {
-          const txt = el.textContent || '';
-          if (txt.trim()) el.textContent = applyTextStyle(txt, 'sans-italic');
-        });
+        // Legacy unicode font conversion for simple latin snippets without headings/markdown request
+        if (!preferMarkdown && options?.mode !== 'markdown') {
+          doc.querySelectorAll('i, em, span[style*="italic"]').forEach(el => {
+            const txt = el.textContent || '';
+            if (txt.trim()) el.textContent = applyTextStyle(txt, 'sans-italic');
+          });
 
-        doc.querySelectorAll('b, strong, span[style*="bold"], span[style*="700"]').forEach(el => {
-          const txt = el.textContent || '';
-          if (txt.trim()) el.textContent = applyTextStyle(txt, 'sans-bold');
-        });
+          doc.querySelectorAll('b, strong, span[style*="bold"], span[style*="700"]').forEach(el => {
+            const txt = el.textContent || '';
+            if (txt.trim()) el.textContent = applyTextStyle(txt, 'sans-bold');
+          });
 
-        doc.querySelectorAll('s, strike, del, span[style*="line-through"]').forEach(el => {
-          const txt = el.textContent || '';
-          if (txt.trim()) el.textContent = applyTextStyle(txt, 'strikethrough');
-        });
+          doc.querySelectorAll('s, strike, del, span[style*="line-through"]').forEach(el => {
+            const txt = el.textContent || '';
+            if (txt.trim()) el.textContent = applyTextStyle(txt, 'strikethrough');
+          });
 
-        doc.querySelectorAll('u, ins, span[style*="underline"]').forEach(el => {
-          const txt = el.textContent || '';
-          if (txt.trim()) el.textContent = applyTextStyle(txt, 'underline');
-        });
+          doc.querySelectorAll('u, ins, span[style*="underline"]').forEach(el => {
+            const txt = el.textContent || '';
+            if (txt.trim()) el.textContent = applyTextStyle(txt, 'underline');
+          });
 
-        doc.querySelectorAll('li').forEach(el => {
-          const txt = (el.textContent || '').trim();
-          el.textContent = '  • ' + txt + '\n';
-        });
+          doc.querySelectorAll('li').forEach(el => {
+            const txt = (el.textContent || '').trim();
+            el.textContent = '  • ' + txt + '\n';
+          });
 
-        doc.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
-        doc.querySelectorAll('p, div').forEach(block => {
-          block.appendChild(document.createTextNode('\n'));
-        });
+          doc.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+          doc.querySelectorAll('p, div').forEach(block => {
+            block.appendChild(document.createTextNode('\n'));
+          });
 
-        const result = (doc.body.textContent || '').trim();
-        if (result.length > 0) {
-          return result
-            .replace(/\r\n/g, '\n')
-            .replace(/\r/g, '\n')
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
+          const result = (doc.body.textContent || '').trim();
+          if (result.length > 0) {
+            return result
+              .replace(/\r\n/g, '\n')
+              .replace(/\r/g, '\n')
+              .replace(/\n{3,}/g, '\n\n')
+              .trim();
+          }
+        }
+
+        // High-Fidelity Rich HTML to Styled Markdown Mode
+        const parseInlineNode = (node: Node): string => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            return node.textContent || '';
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) {
+            return '';
+          }
+          const el = node as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+
+          if (tag === 'br') return '\n';
+
+          let inner = '';
+          el.childNodes.forEach(child => {
+            inner += parseInlineNode(child);
+          });
+
+          const style = (el.getAttribute('style') || '').toLowerCase();
+          const isBold =
+            tag === 'strong' ||
+            tag === 'b' ||
+            style.includes('font-weight: bold') ||
+            style.includes('font-weight:bold') ||
+            style.includes('font-weight: 700') ||
+            style.includes('font-weight:700') ||
+            style.includes('font-weight: 800') ||
+            style.includes('font-weight: 900');
+
+          const isItalic =
+            tag === 'em' ||
+            tag === 'i' ||
+            style.includes('font-style: italic') ||
+            style.includes('font-style:italic');
+
+          const isStrike =
+            tag === 's' ||
+            tag === 'strike' ||
+            tag === 'del' ||
+            style.includes('line-through');
+
+          const isUnderline =
+            tag === 'u' ||
+            tag === 'ins' ||
+            style.includes('underline');
+
+          if (!inner.trim()) return inner;
+
+          let formatted = inner;
+          if (isBold) {
+            const trimmed = formatted.trim();
+            if (!trimmed.startsWith('**') || !trimmed.endsWith('**')) {
+              formatted = `**${trimmed}**`;
+            }
+          }
+          if (isItalic) {
+            const trimmed = formatted.trim();
+            if (!trimmed.startsWith('*') || !trimmed.endsWith('*')) {
+              formatted = `*${trimmed}*`;
+            }
+          }
+          if (isStrike) {
+            const trimmed = formatted.trim();
+            if (!trimmed.startsWith('~~') || !trimmed.endsWith('~~')) {
+              formatted = `~~${trimmed}~~`;
+            }
+          }
+          if (isUnderline) {
+            const trimmed = formatted.trim();
+            formatted = `<u>${trimmed}</u>`;
+          }
+          if (tag === 'code') {
+            formatted = `\`${formatted.trim()}\``;
+          }
+
+          return formatted;
+        };
+
+        const lines: string[] = [];
+
+        const walkBlock = (node: Node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const txt = (node.textContent || '').trim();
+            if (txt) lines.push(txt);
+            return;
+          }
+          if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+          const el = node as HTMLElement;
+          const tag = el.tagName.toLowerCase();
+
+          if (tag === 'h1') {
+            const text = parseInlineNode(el).trim();
+            if (text) lines.push(`# ${text}`);
+            return;
+          }
+          if (tag === 'h2') {
+            const text = parseInlineNode(el).trim();
+            if (text) lines.push(`## ${text}`);
+            return;
+          }
+          if (tag === 'h3' || tag === 'h4' || tag === 'h5' || tag === 'h6') {
+            const text = parseInlineNode(el).trim();
+            if (text) lines.push(`## ${text}`);
+            return;
+          }
+          if (tag === 'blockquote') {
+            const text = parseInlineNode(el).trim();
+            if (text) {
+              text.split('\n').forEach(l => {
+                const tr = l.trim();
+                if (tr) lines.push(`> ${tr}`);
+              });
+            }
+            return;
+          }
+          if (tag === 'ul') {
+            const lis = Array.from(el.querySelectorAll(':scope > li, li'));
+            lis.forEach(li => {
+              const text = parseInlineNode(li).trim();
+              if (text) lines.push(`  • ${text}`);
+            });
+            return;
+          }
+          if (tag === 'ol') {
+            const lis = Array.from(el.querySelectorAll(':scope > li, li'));
+            lis.forEach((li, idx) => {
+              const text = parseInlineNode(li).trim();
+              if (text) lines.push(`  ${idx + 1}. ${text}`);
+            });
+            return;
+          }
+          if (tag === 'p' || tag === 'div') {
+            const hasBlockChildren = Array.from(el.children).some(child =>
+              /^(h[1-6]|p|div|ul|ol|blockquote)$/i.test(child.tagName)
+            );
+            if (hasBlockChildren) {
+              el.childNodes.forEach(child => walkBlock(child));
+              return;
+            }
+
+            const text = parseInlineNode(el).trim();
+            if (text) {
+              lines.push(text);
+            } else if (el.querySelector('br') || el.innerHTML.includes('<br>')) {
+              lines.push('');
+            }
+            return;
+          }
+
+          el.childNodes.forEach(child => walkBlock(child));
+        };
+
+        doc.body.childNodes.forEach(child => walkBlock(child));
+
+        if (lines.length > 0) {
+          return lines.join('\n');
         }
       }
     } catch (_) {}
   }
 
+  // Regex fallback
   let text = html;
-  text = text.replace(/<(i|em)\b[^>]*>(.*?)<\/\1>/gi, (_, __, content) => applyTextStyle(content, 'sans-italic'));
-  text = text.replace(/<(b|strong)\b[^>]*>(.*?)<\/\1>/gi, (_, __, content) => applyTextStyle(content, 'sans-bold'));
-  text = text.replace(/<(s|del|strike)\b[^>]*>(.*?)<\/\1>/gi, (_, __, content) => applyTextStyle(content, 'strikethrough'));
-  text = text.replace(/<(u|ins)\b[^>]*>(.*?)<\/\1>/gi, (_, __, content) => applyTextStyle(content, 'underline'));
-  text = text.replace(/<li\b[^>]*>(.*?)<\/li>/gi, (_, content) => '  • ' + content.trim() + '\n');
+  text = text.replace(/<h1\b[^>]*>(.*?)<\/h1>/gi, (_, c) => `# ${c.trim()}\n\n`);
+  text = text.replace(/<h2\b[^>]*>(.*?)<\/h2>/gi, (_, c) => `## ${c.trim()}\n\n`);
+  text = text.replace(/<h3\b[^>]*>(.*?)<\/h3>/gi, (_, c) => `## ${c.trim()}\n\n`);
+  text = text.replace(/<blockquote\b[^>]*>(.*?)<\/blockquote>/gi, (_, c) => `> ${c.trim()}\n\n`);
+  text = text.replace(/<li\b[^>]*>(.*?)<\/li>/gi, (_, c) => `  • ${c.trim()}\n`);
+  if (!preferMarkdown) {
+    text = text.replace(/<(i|em)\b[^>]*>(.*?)<\/\1>/gi, (_, __, content) => applyTextStyle(content, 'sans-italic'));
+    text = text.replace(/<(b|strong)\b[^>]*>(.*?)<\/\1>/gi, (_, __, content) => applyTextStyle(content, 'sans-bold'));
+  } else {
+    text = text.replace(/<(b|strong)\b[^>]*>(.*?)<\/\1>/gi, (_, __, c) => `**${c.trim()}**`);
+    text = text.replace(/<(i|em)\b[^>]*>(.*?)<\/\1>/gi, (_, __, c) => `*${c.trim()}*`);
+  }
+  text = text.replace(/<(s|del|strike)\b[^>]*>(.*?)<\/\1>/gi, (_, __, c) => `~~${c.trim()}~~`);
+  text = text.replace(/<(u|ins)\b[^>]*>(.*?)<\/\1>/gi, (_, __, c) => `<u>${c.trim()}</u>`);
   text = text.replace(/<br\s*\/?>/gi, '\n');
   text = text.replace(/<\/(p|div)>/gi, '\n');
   text = text.replace(/<[^>]+>/g, '');

@@ -25,14 +25,20 @@ import {
   ArrowRight,
   Sparkles,
   Zap,
+  ListPlus,
+  FileCode2,
+  Copy,
 } from 'lucide-react';
 import { validateFacebookGroupUrl, detectDuplicateGroup } from '../../utils/validators';
-import { generateId, formatDate, downloadFile } from '../../utils/helpers';
+import { generateId, formatDate, downloadFile, copyToClipboard } from '../../utils/helpers';
 import { parseGroupsCsv, exportGroupsToCsv, CsvImportSummary } from '../../services/csv/csv-parser';
 import { getDiscoveryProgress, setDiscoveryProgress } from '../../services/facebook/discovery-manager';
 import { getFacebookAccount } from '../../services/storage/chrome-storage';
 import { useToast } from '../common/Toast';
 import { SelectGroupsModal } from './SelectGroupsModal';
+import { BulkAddGroupsModal } from './BulkAddGroupsModal';
+import { JsonSyncModal } from './JsonSyncModal';
+import { exportGroupsToJson } from '../../services/groups/bulk-group-importer';
 import { Check, Users } from 'lucide-react';
 
 interface MyFacebookGroupsProps {
@@ -75,6 +81,8 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isBulkAddOpen, setIsBulkAddOpen] = useState(false);
+  const [isJsonSyncOpen, setIsJsonSyncOpen] = useState(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState(false);
   const [isSelectModalOpen, setIsSelectModalOpen] = useState(false);
   const [isAutoJoinModalOpen, setIsAutoJoinModalOpen] = useState(false);
@@ -230,6 +238,19 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
       }
     }
     toast.info('Unselected all groups');
+  };
+
+  // Batch selection for 10 / 20 groups
+  const handleSelectBatch = async (count: number) => {
+    const targetGroups = filteredGroups.slice(0, count);
+    const targetIds = new Set(targetGroups.map(g => g.id));
+    for (const group of groups) {
+      const shouldSelect = targetIds.has(group.id);
+      if (group.selected !== shouldSelect) {
+        await onSaveGroup({ ...group, selected: shouldSelect, updatedAt: Date.now() });
+      }
+    }
+    toast.success(`Selected first ${Math.min(count, targetGroups.length)} groups for posting`);
   };
 
   // Categories for filter
@@ -412,6 +433,16 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
             <Button
               variant="primary"
               size="lg"
+              icon={<ListPlus size={18} />}
+              onClick={() => setIsBulkAddOpen(true)}
+              className="bg-gradient-to-r from-indigo-600 via-indigo-500 to-purple-600 hover:from-indigo-500 hover:to-purple-500 shadow-lg shadow-indigo-600/30 font-bold px-5 active:scale-95 transition-all"
+            >
+              Bulk Add (10/20 Groups)
+            </Button>
+
+            <Button
+              variant="primary"
+              size="lg"
               icon={<Zap size={18} />}
               onClick={() => setIsAutoJoinModalOpen(true)}
               className="bg-emerald-600 hover:bg-emerald-500 shadow-lg shadow-emerald-600/25 font-bold px-5"
@@ -427,6 +458,17 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
               className="bg-blue-600 hover:bg-blue-500 shadow-lg shadow-blue-600/25 font-bold px-5"
             >
               Select & Sync Groups
+            </Button>
+
+            <Button
+              variant="secondary"
+              size="md"
+              icon={<FileCode2 size={16} className="text-amber-400" />}
+              onClick={() => setIsJsonSyncOpen(true)}
+              className="border-amber-500/30 hover:border-amber-500/60 text-amber-200 hover:text-amber-100 font-semibold"
+              title="Copy or Paste JSON to sync groups across devices"
+            >
+              JSON Copy / Sync
             </Button>
 
             <Button
@@ -634,7 +676,7 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
               </select>
             )}
 
-            {/* Select/Unselect All */}
+            {/* Select/Unselect All & 10/20 Quick Selection */}
             <Button
               variant="outline"
               size="sm"
@@ -643,6 +685,28 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
               disabled={groups.length === 0}
             >
               {isAllSelected ? 'Unselect All' : 'Select All'}
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleSelectBatch(10)}
+              disabled={groups.length === 0}
+              title="Select first 10 groups for posting"
+              className="text-xs font-semibold hover:border-indigo-500 hover:text-indigo-300"
+            >
+              Select 10
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleSelectBatch(20)}
+              disabled={groups.length === 0}
+              title="Select first 20 groups for posting"
+              className="text-xs font-semibold hover:border-indigo-500 hover:text-indigo-300"
+            >
+              Select 20
             </Button>
           </div>
         </div>
@@ -660,6 +724,22 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
 
           {selectedCount > 0 && (
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                icon={<Copy size={13} className="text-amber-400" />}
+                onClick={async () => {
+                  const json = exportGroupsToJson(selectedGroups, account?.name);
+                  if (await copyToClipboard(json)) {
+                    toast.success(`Copied ${selectedGroups.length} selected groups JSON!`);
+                  }
+                }}
+                title="Copy selected groups as JSON for other devices"
+                className="text-xs font-semibold hover:border-amber-500/50 hover:text-amber-300"
+              >
+                Copy Selected JSON ({selectedCount})
+              </Button>
+
               <Button
                 variant="primary"
                 size="sm"
@@ -909,6 +989,25 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
         title={editingGroup ? 'Edit Facebook Group' : 'Add Facebook Group'}
       >
         <div className="space-y-4">
+          {!editingGroup && (
+            <div className="p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-between text-xs">
+              <span className="text-slate-300">
+                একসাথে ১০/২০টি গ্রুপ যোগ করতে চান?
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddModalOpen(false);
+                  setIsBulkAddOpen(true);
+                }}
+                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors flex items-center gap-1 shadow-xs"
+              >
+                <ListPlus size={13} />
+                <span>Bulk Add (10/20)</span>
+              </button>
+            </div>
+          )}
+
           {formError && (
             <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
               <AlertCircle size={14} />
@@ -1221,6 +1320,30 @@ export const MyFacebookGroups: React.FC<MyFacebookGroupsProps> = ({
         }}
         onSaveGroups={onImportGroups}
         onOpenGroupUrl={onOpenGroupUrl}
+      />
+
+      {/* Bulk Add Groups Modal (10/20+ Groups) */}
+      <BulkAddGroupsModal
+        isOpen={isBulkAddOpen}
+        onClose={() => setIsBulkAddOpen(false)}
+        existingGroups={groups}
+        onImportGroups={onImportGroups}
+        onProceedToPost={onProceedToPost}
+      />
+
+      {/* Cross-Device JSON Sync Modal */}
+      <JsonSyncModal
+        isOpen={isJsonSyncOpen}
+        onClose={() => setIsJsonSyncOpen(false)}
+        groups={groups}
+        accountName={account?.name}
+        onImportGroups={onImportGroups}
+        onReplaceAllGroups={async (newGroups) => {
+          for (const g of groups) {
+            await onDeleteGroup(g.id);
+          }
+          await onImportGroups(newGroups);
+        }}
       />
     </div>
   );

@@ -40,6 +40,8 @@ import { formatPostWithTemplate } from '../../services/template/template-engine'
 import {
   applyTextStyle,
   applyBulletList,
+  applyBold,
+  applyItalic,
   applyCustomList,
   applyHeading,
   applyNumberedList,
@@ -352,6 +354,66 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     }
   };
 
+  const handleApplyBoldAction = () => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => applyBold(prev));
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const isBold = selected.startsWith('**') && selected.endsWith('**') && selected.length >= 4;
+      const transformed = isBold ? selected.slice(2, -2) : `**${selected}**`;
+      const nextCaption = caption.substring(0, start) + transformed + caption.substring(end);
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + transformed.length);
+      }, 0);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      setCaption(before + '****' + after);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + 2, start + 2);
+      }, 0);
+    }
+    toast.success('Applied Bold (**text**)!');
+  };
+
+  const handleApplyItalicAction = () => {
+    const el = textareaRef.current;
+    if (!el) {
+      setCaption(prev => applyItalic(prev));
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    if (start !== end) {
+      const selected = caption.substring(start, end);
+      const isItalic = selected.startsWith('*') && selected.endsWith('*') && selected.length >= 2 && !selected.startsWith('**');
+      const transformed = isItalic ? selected.slice(1, -1) : `*${selected}*`;
+      const nextCaption = caption.substring(0, start) + transformed + caption.substring(end);
+      setCaption(nextCaption);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start, start + transformed.length);
+      }, 0);
+    } else {
+      const before = caption.substring(0, start);
+      const after = caption.substring(end);
+      setCaption(before + '**' + after);
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + 1, start + 1);
+      }, 0);
+    }
+    toast.success('Applied Italic (*text*)!');
+  };
+
   // Apply List Styles
   const handleApplyCustomListAction = (style: ListStyleType) => {
     const el = textareaRef.current;
@@ -575,20 +637,19 @@ export const PostComposer: React.FC<PostComposerProps> = ({
     const htmlData = e.clipboardData.getData('text/html');
     const plainText = e.clipboardData.getData('text/plain');
 
-    if (
+    const hasRichHtml = Boolean(
       htmlData &&
-      (htmlData.includes('<i>') ||
-        htmlData.includes('<em>') ||
-        htmlData.includes('<b>') ||
-        htmlData.includes('<strong>') ||
-        htmlData.includes('<s>') ||
-        htmlData.includes('<u>') ||
-        htmlData.includes('<li>') ||
-        htmlData.includes('font-style'))
-    ) {
-      let styled = htmlToStyledText(htmlData);
+      (/<(h[1-6]|ul|ol|li|blockquote|strong|b|em|i|s|del|strike|u|code)[\s>]/i.test(htmlData) ||
+        htmlData.includes('data-lexical') ||
+        htmlData.includes('font-weight') ||
+        htmlData.includes('font-style') ||
+        htmlData.includes('text-decoration'))
+    );
+
+    if (hasRichHtml) {
+      let styled = htmlToStyledText(htmlData, { preferMarkdown: true });
       styled = deduplicateRepeatedCaption(styled);
-      if (styled && styled.length > 0) {
+      if (styled && styled.trim().length > 0) {
         e.preventDefault();
         const el = textareaRef.current;
         if (!el) return;
@@ -601,7 +662,8 @@ export const PostComposer: React.FC<PostComposerProps> = ({
           el.focus();
           el.setSelectionRange(start + styled.length, start + styled.length);
         }, 0);
-        toast.success('Pasted with original design preserved!');
+        toast.success('✨ Pasted with original Facebook design preserved!');
+        return;
       }
     } else if (plainText) {
       const deduplicatedPlain = deduplicateRepeatedCaption(plainText);
@@ -823,9 +885,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   {/* Italic Button */}
                   <button
                     type="button"
-                    onClick={() => handleApplyStyle('sans-italic')}
+                    onClick={handleApplyItalicAction}
                     className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500 text-slate-200 font-bold rounded-md transition-all"
-                    title="Italic (e.g. 𝘴𝘢𝘭𝘦 𝘰𝘳 𝘦𝘹𝘤𝘩𝘢𝘯𝘨𝘦)"
+                    title="Italic (*text*)"
                   >
                     <span className="italic font-serif text-xs">𝘐</span> Italic
                   </button>
@@ -833,9 +895,9 @@ export const PostComposer: React.FC<PostComposerProps> = ({
                   {/* Bold Button */}
                   <button
                     type="button"
-                    onClick={() => handleApplyStyle('sans-bold')}
+                    onClick={handleApplyBoldAction}
                     className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500 text-slate-200 font-bold rounded-md transition-all"
-                    title="Bold (e.g. 𝘀𝗮𝗹𝗲)"
+                    title="Bold (**text** - Works for Bengali, English, Emojis)"
                   >
                     <span className="font-bold text-xs">𝐁</span> Bold
                   </button>

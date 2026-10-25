@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   applyTextStyle,
   applyBulletList,
+  applyBold,
+  applyItalic,
   autoBeautifyCaption,
   toNormalText,
   convertToRichHtml,
@@ -143,5 +145,54 @@ describe('Text Styler & Caption Designer', () => {
     const doublePasted = `${singlePost}\n\n${singlePost}`;
     const cleaned = deduplicateRepeatedCaption(doublePasted);
     expect(cleaned.trim()).toBe(singlePost.trim());
+  });
+
+  it('preserves Facebook Lexical editor post with H1, Bengali bold, and bullet points', () => {
+    // Simulates copying formatted post from Facebook Create Post modal as in user screenshot
+    const fbHtml = [
+      '<h1 dir="auto"><span data-lexical-text="true">Benelli TNT 155cc — Special Look,</span></h1>',
+      '<p dir="auto"><span data-lexical-text="true">\\🏍️ TNT 155cc-এর মধ্যে Look, Pickup, Braking ও Performance—সব মিলিয়ে বাইকটি বেশ নজরকাড়া।</span></p>',
+      '<p dir="auto"><br></p>',
+      '<p dir="auto"><strong data-lexical-text="true">\\এক নজরে বাইকের বিশেষ ফিচারগুলো:</strong></p>',
+      '<ul>',
+      '  <li><span data-lexical-text="true">Dual Channel CBS Braking</span></li>',
+      '  <li><span data-lexical-text="true">USD Front Suspension</span></li>',
+      '  <li><span data-lexical-text="true">Double Disc Brake</span></li>',
+      '  <li><span data-lexical-text="true">মোটা Tyre — ভালো Road Grip</span></li>',
+      '  <li><span data-lexical-text="true">জোস Pickup ও Smooth Engine</span></li>',
+      '  <li><span data-lexical-text="true">Special Custom Look</span></li>',
+      '  <li><span data-lexical-text="true">ভালো Mileage</span></li>',
+      '</ul>',
+    ].join('\n');
+
+    const styled = htmlToStyledText(fbHtml, { preferMarkdown: true });
+
+    // Header 1 preserved as Markdown H1
+    expect(styled).toContain('# Benelli TNT 155cc — Special Look,');
+
+    // Bengali Bold preserved
+    expect(styled).toContain('**\\এক নজরে বাইকের বিশেষ ফিচারগুলো:**');
+
+    // Bullet items preserved
+    expect(styled).toContain('  • Dual Channel CBS Braking');
+    expect(styled).toContain('  • USD Front Suspension');
+    expect(styled).toContain('  • Double Disc Brake');
+    expect(styled).toContain('  • মোটা Tyre — ভালো Road Grip');
+    expect(styled).toContain('  • ভালো Mileage');
+
+    // Now verify convertToRichHtml converts this exact styled text back into Facebook native HTML
+    const richHtml = convertToRichHtml(styled);
+    expect(richHtml).toContain('<h1>Benelli TNT 155cc — Special Look,</h1>');
+    expect(richHtml).toContain('<strong>\\এক নজরে বাইকের বিশেষ ফিচারগুলো:</strong>');
+    expect(richHtml).toContain('<li>Dual Channel CBS Braking</li>');
+    expect(richHtml).toContain('<li>মোটা Tyre — ভালো Road Grip</li>');
+    expect(richHtml).toContain('<li>ভালো Mileage</li>');
+  });
+
+  it('applyBold and applyItalic correctly format and toggle text', () => {
+    expect(applyBold('এক নজরে')).toBe('**এক নজরে**');
+    expect(applyBold('**এক নজরে**')).toBe('এক নজরে');
+    expect(applyItalic('Special Look')).toBe('*Special Look*');
+    expect(applyItalic('*Special Look*')).toBe('Special Look');
   });
 });

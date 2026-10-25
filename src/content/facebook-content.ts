@@ -94,6 +94,20 @@ async function copyRichText(plainText: string, htmlText: string): Promise<boolea
       return true;
     }
   } catch (_) {}
+
+  // Fallback: document.execCommand('copy') with rich HTML DataTransfer
+  try {
+    const listener = (e: ClipboardEvent) => {
+      e.preventDefault();
+      e.clipboardData?.setData('text/plain', plainText);
+      e.clipboardData?.setData('text/html', htmlText);
+    };
+    document.addEventListener('copy', listener);
+    const ok = document.execCommand('copy');
+    document.removeEventListener('copy', listener);
+    if (ok) return true;
+  } catch (_) {}
+
   return copyText(plainText);
 }
 
@@ -649,9 +663,19 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
         textNow = (editor.textContent || '').trim();
       }
 
-      const pElements = editor.querySelectorAll('p');
-      if (textNow.length > 0 && (!captionText.includes('\n') || pElements.length > 1 || textNow.length >= captionText.trim().length * 0.5)) {
-        console.log('[AGP:AutoPost] Direct Native Paste event succeeded. Paragraph count:', pElements.length);
+      // Fallback: document.execCommand insertHTML
+      if (!textNow || textNow.length < 5) {
+        try {
+          document.execCommand('insertHTML', false, htmlParagraphs);
+          await sleep(60);
+          textNow = (editor.textContent || '').trim();
+        } catch (_) {}
+      }
+
+      const blockElements = editor.querySelectorAll('p, h1, h2, h3, ul, ol, li, blockquote');
+      const hasRichBlocks = editor.querySelectorAll('h1, h2, ul, ol, blockquote').length > 0;
+      if (textNow.length > 0 && (!captionText.includes('\n') || blockElements.length > 1 || hasRichBlocks || textNow.length >= captionText.trim().length * 0.4)) {
+        console.log('[AGP:AutoPost] Direct Native Paste event succeeded. Block count:', blockElements.length);
         injectionSuccess = true;
       }
     }
