@@ -166,5 +166,64 @@ describe('Bulk Group Importer Service', () => {
     expect(summary.groupsToCreate[0].name).toBe('Raw Array Group 1');
     expect(summary.groupsToCreate[1].category).toBe('Clothing');
   });
+
+  it('correctly parses user screenshot malformed JSON snippet with leading comma and groupId only', () => {
+    const userScreenshotSnippet = `
+,
+    "groupId": "274906757200196",
+    "category": "Auto Joined",
+    "privacy": "PUBLIC"
+  }
+]
+}
+`;
+    const summary = parseBulkGroupText(userScreenshotSnippet, [], 'Imported');
+
+    expect(summary.validItems.length).toBe(1);
+    expect(summary.groupsToCreate.length).toBe(1);
+    expect(summary.groupsToCreate[0].groupId).toBe('274906757200196');
+    expect(summary.groupsToCreate[0].url).toBe('https://www.facebook.com/groups/274906757200196/');
+    expect(summary.groupsToCreate[0].category).toBe('Auto Joined');
+    expect(summary.groupsToCreate[0].privacy).toBe('PUBLIC');
+    expect(summary.groupsToCreate[0].selected).toBe(true);
+  });
+
+  it('correctly parses bare numeric Facebook Group IDs line by line', () => {
+    const numericLines = `
+274906757200196
+987654321012345
+Dhaka Tech Group, 112233445566778
+`;
+    const summary = parseBulkGroupText(numericLines, []);
+
+    expect(summary.validItems.length).toBe(3);
+    expect(summary.groupsToCreate.length).toBe(3);
+    expect(summary.groupsToCreate[0].groupId).toBe('274906757200196');
+    expect(summary.groupsToCreate[1].groupId).toBe('987654321012345');
+    expect(summary.groupsToCreate[2].groupId).toBe('112233445566778');
+    expect(summary.groupsToCreate[2].name).toBe('Dhaka Tech Group');
+  });
+
+  it('correctly parses multiple fragmented objects missing outer array brackets', () => {
+    const fragments = `
+,
+    "groupId": "1111111111",
+    "name": "Group One",
+    "category": "Sales"
+  },
+  {
+    "groupId": "2222222222",
+    "name": "Group Two",
+    "category": "Fashion"
+  }
+`;
+    const summary = parseBulkGroupText(fragments, []);
+
+    expect(summary.validItems.length).toBe(2);
+    expect(summary.groupsToCreate[0].groupId).toBe('1111111111');
+    expect(summary.groupsToCreate[0].name).toBe('Group One');
+    expect(summary.groupsToCreate[1].groupId).toBe('2222222222');
+    expect(summary.groupsToCreate[1].name).toBe('Group Two');
+  });
 });
 

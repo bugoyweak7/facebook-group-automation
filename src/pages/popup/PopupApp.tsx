@@ -931,13 +931,17 @@ export const PopupApp: React.FC = () => {
 
   const handleImportLinks = async () => {
     if (!importText.trim()) {
-      showToast('Enter group URLs or paste list');
+      showToast('Enter Facebook group URLs, IDs, or paste JSON');
       return;
     }
 
     const summary = parseBulkGroupText(importText, groups, importCategory, 'PUBLIC', true);
     if (summary.groupsToCreate.length === 0) {
-      showToast('No new valid groups found');
+      if (summary.duplicateItems.length > 0) {
+        showToast(`All ${summary.duplicateItems.length} group(s) already exist in your saved groups`);
+      } else {
+        showToast('No valid group URLs or IDs found in the pasted text');
+      }
       return;
     }
 
@@ -948,7 +952,7 @@ export const PopupApp: React.FC = () => {
     setSelectedIdsOrder(prev => [...newIds, ...prev]);
     setImportText('');
     setActiveTab('my-groups');
-    showToast(`Imported ${summary.groupsToCreate.length} groups!`);
+    showToast(`Imported ${summary.groupsToCreate.length} group(s)!`);
   };
 
   // Composer Media Upload Handlers

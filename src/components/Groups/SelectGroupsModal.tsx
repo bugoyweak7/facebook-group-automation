@@ -14,7 +14,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { getDiscoveryProgress } from '../../services/facebook/discovery-manager';
-import { getFacebookAccount } from '../../services/storage/chrome-storage';
+import { getFacebookAccount, setGroups } from '../../services/storage/chrome-storage';
 import { useToast } from '../common/Toast';
 import { validateFacebookGroupUrl } from '../../utils/validators';
 import { generateId } from '../../utils/helpers';
@@ -236,25 +236,33 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
   // Import links handler using robust bulk parser
   const handleImportLinks = async () => {
     if (!importText.trim()) {
-      toast.warning('Please enter at least one Facebook group link.');
+      toast.warning('Please enter Facebook group links or JSON.');
       return;
     }
 
     const summary = parseBulkGroupText(importText, groups, importCategory, 'PUBLIC', true);
     if (summary.groupsToCreate.length === 0) {
-      toast.info('No new valid groups were found. They may already exist or be invalid.');
+      if (summary.duplicateItems.length > 0) {
+        toast.info(`All ${summary.duplicateItems.length} group(s) already exist in your saved groups.`);
+      } else {
+        toast.warning('No valid Facebook groups or IDs could be found in the pasted text.');
+      }
       return;
     }
 
+    const updated = [...summary.groupsToCreate, ...groups];
     if (onSaveGroups) {
-      await onSaveGroups([...summary.groupsToCreate, ...groups]);
-      // Select imported ones
-      const importedIds = summary.groupsToCreate.map(g => g.id);
-      setSelectedIdsOrder(prev => [...importedIds, ...prev]);
-      toast.success(`Imported and added ${summary.groupsToCreate.length} groups!`);
-      setImportText('');
-      setActiveTab('my-groups');
+      await onSaveGroups(updated);
+    } else {
+      await setGroups(updated);
     }
+
+    // Select imported ones
+    const importedIds = summary.groupsToCreate.map(g => g.id);
+    setSelectedIdsOrder(prev => [...importedIds, ...prev]);
+    toast.success(`Imported and added ${summary.groupsToCreate.length} group(s)!`);
+    setImportText('');
+    setActiveTab('my-groups');
   };
 
   const formattedLastSynced = lastSyncedAt
