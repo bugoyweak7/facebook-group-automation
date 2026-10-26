@@ -9,6 +9,8 @@ import {
   pingLocalCompanion,
   requestCompanionUpdate,
   reloadChromeExtension,
+  isCommitUpToDate,
+  DEFAULT_FALLBACK_SHA,
 } from '../src/services/updater/extension-updater';
 
 describe('Extension Auto-Updater Service', () => {
@@ -56,7 +58,7 @@ describe('Extension Auto-Updater Service', () => {
       (globalThis as any).chrome = undefined;
 
       const sha = await getCurrentCommitSha();
-      expect(sha).toBe('a5bb018');
+      expect(sha).toBe(DEFAULT_FALLBACK_SHA);
 
       (globalThis as any).chrome = originalChrome;
     });

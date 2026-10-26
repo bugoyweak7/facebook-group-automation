@@ -90,24 +90,39 @@ export const BulkAddGroupsModal: React.FC<BulkAddGroupsModalProps> = ({
 
   // Submit and save groups
   const handleSubmit = async () => {
-    if (summary.groupsToCreate.length === 0) {
-      toast.error('No valid new groups found to add. Please check your links.');
+    const hasNew = summary.groupsToCreate.length > 0;
+    const hasUpdates = summary.groupsToUpdate.length > 0;
+
+    if (!hasNew && !hasUpdates) {
+      if (summary.duplicateItems.length > 0) {
+        toast.info('All groups in the input already exist with identical details.');
+      } else {
+        toast.error('No valid Facebook groups found to add or update. Please check your links/JSON.');
+      }
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await onImportGroups(summary.groupsToCreate);
-      const addedCount = summary.groupsToCreate.length;
-      toast.success(`Successfully added ${addedCount} groups to your extension!`);
+      await onImportGroups(summary.mergedGroups);
+      if (hasNew && hasUpdates) {
+        toast.success(`✨ Added ${summary.groupsToCreate.length} new groups & updated ${summary.groupsToUpdate.length} existing!`);
+      } else if (hasNew) {
+        toast.success(`✨ Successfully added ${summary.groupsToCreate.length} groups to your extension!`);
+      } else {
+        toast.success(`✨ Successfully updated ${summary.groupsToUpdate.length} existing groups with new details!`);
+      }
 
-      const createdIds = summary.groupsToCreate.map(g => g.id);
+      const createdIds = [
+        ...summary.groupsToCreate.map(g => g.id),
+        ...summary.groupsToUpdate.map(g => g.id),
+      ];
       setInputText('');
       onClose();
 
       // If user wants to post immediately
       if (onProceedToPost && autoSelect && createdIds.length > 0) {
-        // Optional quick prompt or proceed
+        onProceedToPost(createdIds);
       }
     } catch (err: any) {
       toast.error('Failed to save groups: ' + (err?.message || String(err)));
@@ -334,12 +349,12 @@ export const BulkAddGroupsModal: React.FC<BulkAddGroupsModalProps> = ({
             size="md"
             icon={<ListPlus size={16} />}
             isLoading={isSubmitting}
-            disabled={summary.validItems.length === 0}
+            disabled={summary.groupsToCreate.length === 0 && summary.groupsToUpdate.length === 0}
             onClick={handleSubmit}
             className="bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/25 font-bold px-6"
           >
-            {summary.validItems.length > 0
-              ? `Import & Save ${summary.validItems.length} Groups Now`
+            {summary.groupsToCreate.length > 0 || summary.groupsToUpdate.length > 0
+              ? `Import & Save (${summary.groupsToCreate.length} New, ${summary.groupsToUpdate.length} Updates)`
               : 'Add Groups'}
           </Button>
         </div>

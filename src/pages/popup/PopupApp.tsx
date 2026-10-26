@@ -102,6 +102,7 @@ import {
   fetchLatestGithubCommit,
   getCurrentCommitSha,
   checkJustReloaded,
+  isCommitUpToDate,
 } from '../../services/updater/extension-updater';
 import {
   parseBulkGroupText,
@@ -733,8 +734,10 @@ export const PopupApp: React.FC = () => {
     fetchLatestGithubCommit().then(async commit => {
       if (commit) {
         const curSha = await getCurrentCommitSha();
-        if (curSha && !commit.sha.startsWith(curSha) && !curSha.startsWith(commit.sha)) {
+        if (curSha && !isCommitUpToDate(curSha, commit.sha)) {
           setHasGithubUpdate(true);
+        } else {
+          setHasGithubUpdate(false);
         }
       }
     }).catch(() => {});
@@ -936,23 +939,37 @@ export const PopupApp: React.FC = () => {
     }
 
     const summary = parseBulkGroupText(importText, groups, importCategory, 'PUBLIC', true);
-    if (summary.groupsToCreate.length === 0) {
+    if (summary.groupsToCreate.length === 0 && summary.groupsToUpdate.length === 0) {
       if (summary.duplicateItems.length > 0) {
-        showToast(`All ${summary.duplicateItems.length} group(s) already exist in your saved groups`);
+        showToast(`All ${summary.duplicateItems.length} group(s) already exist with identical details`);
       } else {
-        showToast('No valid group URLs or IDs found in the pasted text');
+        showToast('No valid group URLs or IDs found in the pasted text/JSON');
       }
       return;
     }
 
-    const updated = [...summary.groupsToCreate, ...groups];
+    // Save full merged list (updates applied to existing + new groups added)
+    const updated = summary.mergedGroups;
     await setGroups(updated);
     setGroupsState(updated);
-    const newIds = summary.groupsToCreate.map(g => g.id);
-    setSelectedIdsOrder(prev => [...newIds, ...prev]);
+
+    // Select all newly created and updated groups so user can use them immediately
+    const affectedIds = [
+      ...summary.groupsToCreate.map(g => g.id),
+      ...summary.groupsToUpdate.map(g => g.id),
+    ];
+    setSelectedIdsOrder(prev => [...affectedIds, ...prev.filter(id => !affectedIds.includes(id))]);
+
     setImportText('');
     setActiveTab('my-groups');
-    showToast(`Imported ${summary.groupsToCreate.length} group(s)!`);
+
+    if (summary.groupsToCreate.length > 0 && summary.groupsToUpdate.length > 0) {
+      showToast(`✨ ${summary.groupsToCreate.length} new group(s) added & ${summary.groupsToUpdate.length} updated!`);
+    } else if (summary.groupsToCreate.length > 0) {
+      showToast(`✨ Added ${summary.groupsToCreate.length} new group(s)!`);
+    } else {
+      showToast(`✨ Updated ${summary.groupsToUpdate.length} existing group(s) with new details!`);
+    }
   };
 
   // Composer Media Upload Handlers
@@ -2526,7 +2543,7 @@ export const PopupApp: React.FC = () => {
               </span>
               <div className="flex items-center gap-1 font-bold">
                 {[
-                  { sec: 0, label: '0s (Instant)' },
+                  { sec: 0, label: '⚡ 0s (Super Fast)' },
                   { sec: 2, label: '2s' },
                   { sec: 5, label: '5s' },
                   { sec: 10, label: '10s' },
@@ -2535,9 +2552,9 @@ export const PopupApp: React.FC = () => {
                     key={sec}
                     type="button"
                     onClick={() => setDelaySec(sec)}
-                    className={`px-2 py-0.5 rounded text-[10px] transition-colors ${
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-colors ${
                       delaySec === sec
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-emerald-600 text-white shadow-sm'
                         : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
                     }`}
                   >

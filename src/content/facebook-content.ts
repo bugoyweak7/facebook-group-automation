@@ -431,14 +431,25 @@ async function openComposerModal(): Promise<HTMLElement | null> {
   let dialog = findOpenPostDialog();
   if (dialog) return dialog;
 
-  const trigger = findComposerTrigger();
+  // High-speed reactive polling for composer trigger (10ms checks)
+  let trigger = findComposerTrigger();
+  if (!trigger) {
+    const triggerStart = Date.now();
+    while (Date.now() - triggerStart < 3500) {
+      dialog = findOpenPostDialog();
+      if (dialog) return dialog;
+      trigger = findComposerTrigger();
+      if (trigger) break;
+      await sleep(10);
+    }
+  }
+
   if (!trigger) {
     console.log('[AGP:AutoPost] Composer trigger not found on page.');
     return null;
   }
 
   trigger.scrollIntoView({ behavior: 'instant', block: 'center' });
-  await sleep(40);
 
   trigger.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
   trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
@@ -446,11 +457,14 @@ async function openComposerModal(): Promise<HTMLElement | null> {
   trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
   trigger.click();
 
+  dialog = findOpenPostDialog();
+  if (dialog) return dialog;
+
   const start = Date.now();
-  while (Date.now() - start < 4000) {
-    await sleep(40);
+  while (Date.now() - start < 3500) {
     dialog = findOpenPostDialog();
     if (dialog) return dialog;
+    await sleep(10);
   }
 
   return null;
@@ -475,8 +489,8 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
 
   const lines = captionText.split('\n');
 
-  // Always copy resolved rich HTML + plain text to clipboard first so user and editor have immediate access
-  await copyRichText(captionText.trim(), convertToRichHtml(captionText));
+  // Copy to system clipboard in parallel background (non-blocking for ultra-fast typing speed)
+  copyRichText(captionText.trim(), convertToRichHtml(captionText)).catch(() => {});
 
   let editor: HTMLElement | null = null;
   const start = Date.now();
@@ -494,7 +508,7 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
     'div[aria-placeholder*="Write something" i]',
   ];
 
-  while (Date.now() - start < 5000) {
+  while (Date.now() - start < 4000) {
     for (const sel of editorSelectors) {
       const candidate = dialog.querySelector<HTMLElement>(sel) || document.querySelector<HTMLElement>(`[role="dialog"] ${sel}`);
       if (candidate && isElementVisible(candidate)) {
@@ -503,7 +517,7 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
       }
     }
     if (editor) break;
-    await sleep(40);
+    await sleep(10);
   }
 
   if (!editor) {
@@ -534,8 +548,6 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
   editor.dispatchEvent(new FocusEvent('focus', { bubbles: false }));
   editor.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
 
-  await sleep(40);
-
   // Strategy 1: Try MAIN world bridge (runs with full page JS/Lexical access)
   try {
     const messageId = 'agp_inj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
@@ -554,7 +566,7 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
       setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve(false);
-      }, 1000);
+      }, 250);
     });
 
     window.postMessage({
@@ -566,7 +578,6 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
     const mainWorldOk = await mainWorldPromise;
     if (mainWorldOk) {
       console.log('[AGP:AutoPost] MAIN world injection succeeded with exact layout!');
-      await sleep(60);
       const textNow = (editor.textContent || '').trim();
       if (textNow.length > 0) return true;
     }
@@ -596,7 +607,7 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
   }
   document.execCommand('selectAll', false);
   document.execCommand('delete', false);
-  await sleep(30);
+  await sleep(10);
 
   // Select inner paragraph or editor
   const p = editor.querySelector('p') || editor;
@@ -626,58 +637,46 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
 
   // Strategy 2: Native Paste Event with DataTransfer (text/plain + text/html)
   try {
-    // 2A: Attempt native trusted paste from system clipboard
-    const nativePasteOk = document.execCommand('paste');
-    if (nativePasteOk) {
-      await sleep(60);
-      let textCheck = (editor.textContent || '').trim();
-      if (textCheck.length >= captionText.trim().length * 0.5) {
-        injectionSuccess = true;
-      }
-    }
+    const dt = new DataTransfer();
+    dt.setData('text/plain', captionText);
+    dt.setData('text/html', htmlParagraphs);
 
-    if (!injectionSuccess) {
-      const dt = new DataTransfer();
-      dt.setData('text/plain', captionText);
-      dt.setData('text/html', htmlParagraphs);
+    const pasteEvent = new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: dt,
+    });
+    editor.dispatchEvent(pasteEvent);
 
-      const pasteEvent = new ClipboardEvent('paste', {
+    await sleep(20);
+
+    let textNow = (editor.textContent || '').trim();
+    // Only if pasteEvent was completely ignored, fallback to beforeinput
+    if (!textNow || textNow.length < 5) {
+      editor.dispatchEvent(new InputEvent('beforeinput', {
         bubbles: true,
         cancelable: true,
-        clipboardData: dt,
-      });
-      editor.dispatchEvent(pasteEvent);
+        inputType: 'insertFromPaste',
+        dataTransfer: dt,
+      }));
+      await sleep(15);
+      textNow = (editor.textContent || '').trim();
+    }
 
-      await sleep(80);
-
-      let textNow = (editor.textContent || '').trim();
-      // Only if pasteEvent was completely ignored, fallback to beforeinput
-      if (!textNow || textNow.length < 5) {
-        editor.dispatchEvent(new InputEvent('beforeinput', {
-          bubbles: true,
-          cancelable: true,
-          inputType: 'insertFromPaste',
-          dataTransfer: dt,
-        }));
-        await sleep(60);
+    // Fallback: document.execCommand insertHTML
+    if (!textNow || textNow.length < 5) {
+      try {
+        document.execCommand('insertHTML', false, htmlParagraphs);
+        await sleep(15);
         textNow = (editor.textContent || '').trim();
-      }
+      } catch (_) {}
+    }
 
-      // Fallback: document.execCommand insertHTML
-      if (!textNow || textNow.length < 5) {
-        try {
-          document.execCommand('insertHTML', false, htmlParagraphs);
-          await sleep(60);
-          textNow = (editor.textContent || '').trim();
-        } catch (_) {}
-      }
-
-      const blockElements = editor.querySelectorAll('p, h1, h2, h3, ul, ol, li, blockquote');
-      const hasRichBlocks = editor.querySelectorAll('h1, h2, ul, ol, blockquote').length > 0;
-      if (textNow.length > 0 && (!captionText.includes('\n') || blockElements.length > 1 || hasRichBlocks || textNow.length >= captionText.trim().length * 0.4)) {
-        console.log('[AGP:AutoPost] Direct Native Paste event succeeded. Block count:', blockElements.length);
-        injectionSuccess = true;
-      }
+    const blockElements = editor.querySelectorAll('p, h1, h2, h3, ul, ol, li, blockquote');
+    const hasRichBlocks = editor.querySelectorAll('h1, h2, ul, ol, blockquote').length > 0;
+    if (textNow.length > 0 && (!captionText.includes('\n') || blockElements.length > 1 || hasRichBlocks || textNow.length >= captionText.trim().length * 0.4)) {
+      console.log('[AGP:AutoPost] Direct Native Paste event succeeded. Block count:', blockElements.length);
+      injectionSuccess = true;
     }
   } catch (err) {
     console.warn('[AGP:AutoPost] Native paste event error:', err);
@@ -689,7 +688,7 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
       console.log('[AGP:AutoPost] Trying Strategy 3: Line-by-line Enter keystrokes with non-collapsing spacing...');
       document.execCommand('selectAll', false);
       document.execCommand('delete', false);
-      await sleep(30);
+      await sleep(10);
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
@@ -732,12 +731,10 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
             which: 13,
             bubbles: true,
           }));
-
-          await sleep(8);
         }
       }
 
-      await sleep(80);
+      await sleep(15);
       const textNow = (editor.textContent || '').trim();
       if (textNow.length > 0) {
         console.log('[AGP:AutoPost] Strategy 3 succeeded.');
@@ -753,7 +750,7 @@ async function injectCaptionIntoEditor(dialog: HTMLElement, rawCaptionText: stri
   editor.dispatchEvent(new Event('change', { bubbles: true }));
   document.dispatchEvent(new Event('selectionchange'));
 
-  await sleep(60);
+  await sleep(15);
 
   const verifiedText = (editor.textContent || '').trim();
   return verifiedText.length > 0;
@@ -870,12 +867,12 @@ async function attachPhotosToDialog(dialog: HTMLElement, mediaList: string[]): P
       photoBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
       photoBtn.click();
 
-      // Poll for file input (up to 2.5 seconds, check every 40ms)
+      // Poll for file input (up to 2.5 seconds, check every 20ms)
       const pollStart = Date.now();
       while (Date.now() - pollStart < 2500) {
-        await sleep(40);
         fileInput = findFileInput(dialog);
         if (fileInput) break;
+        await sleep(20);
       }
     }
   }
@@ -885,13 +882,15 @@ async function attachPhotosToDialog(dialog: HTMLElement, mediaList: string[]): P
     return false;
   }
 
-  // 3. Prepare File objects via DataTransfer with exact video/photo extensions
+  // 3. Prepare File objects in parallel via DataTransfer with exact video/photo extensions
   const dt = new DataTransfer();
-  for (let i = 0; i < mediaList.length; i++) {
-    const file = await mediaToFile(mediaList[i], `media_${i + 1}`);
+  const preparedFiles = await Promise.all(
+    mediaList.map((mediaItem, i) => mediaToFile(mediaItem, `media_${i + 1}`))
+  );
+  for (const file of preparedFiles) {
     if (file && file.size > 0) {
       dt.items.add(file);
-      console.log(`[AGP:AutoPost] Prepared media file #${i + 1}: ${file.name} (${file.type}, ${file.size} bytes)`);
+      console.log(`[AGP:AutoPost] Prepared media file: ${file.name} (${file.type}, ${file.size} bytes)`);
     }
   }
 
@@ -929,10 +928,9 @@ async function attachPhotosToDialog(dialog: HTMLElement, mediaList: string[]): P
 
     if (hasMediaPreview) {
       console.log('[AGP:AutoPost] Media preview mounted immediately in composer.');
-      await sleep(80);
       break;
     }
-    await sleep(40);
+    await sleep(10);
   }
 
   // Final check: did Facebook display an upload error?
@@ -1056,7 +1054,7 @@ async function attemptAutoJoinGroup(): Promise<{ success: boolean; isInstantMemb
   showToast('⚡ Auto-joining group...', true);
 
   joinBtn.scrollIntoView({ behavior: 'instant', block: 'center' });
-  await sleep(60);
+  await sleep(10);
 
   // Dispatch full native click event sequence
   const mouseOpts = { bubbles: true, cancelable: true, view: window };
@@ -1066,11 +1064,18 @@ async function attemptAutoJoinGroup(): Promise<{ success: boolean; isInstantMemb
   joinBtn.dispatchEvent(new MouseEvent('mouseup', mouseOpts));
   joinBtn.click();
 
-  // Wait for Facebook to process click (modal or membership state update)
-  await sleep(1500);
+  // Rapidly poll up to 350ms (15ms checks) for modal or instant membership state update
+  const waitModalStart = Date.now();
+  let dialog: HTMLElement | null = null;
+  while (Date.now() - waitModalStart < 350) {
+    dialog = document.querySelector<HTMLElement>('div[role="dialog"]');
+    if (dialog && isElementVisible(dialog)) break;
+    const composerTrigger = findComposerTrigger();
+    if (composerTrigger && isElementVisible(composerTrigger)) break;
+    await sleep(15);
+  }
 
   // Check if Facebook displayed a rules confirmation or questions dialog
-  const dialog = document.querySelector<HTMLElement>('div[role="dialog"]');
   if (dialog && isElementVisible(dialog)) {
     console.log('[AGP:AutoJoin] Rules agreement or membership question dialog detected. Handling...');
     
@@ -1080,7 +1085,6 @@ async function attemptAutoJoinGroup(): Promise<{ success: boolean; isInstantMemb
       const isChecked = cb.getAttribute('aria-checked') === 'true' || (cb as HTMLInputElement).checked;
       if (!isChecked) {
         cb.click();
-        await sleep(80);
       }
     }
 
@@ -1091,7 +1095,6 @@ async function attemptAutoJoinGroup(): Promise<{ success: boolean; isInstantMemb
         inp.value = 'Agree';
         inp.dispatchEvent(new Event('input', { bubbles: true }));
         inp.dispatchEvent(new Event('change', { bubbles: true }));
-        await sleep(50);
       }
     }
 
@@ -1114,20 +1117,24 @@ async function attemptAutoJoinGroup(): Promise<{ success: boolean; isInstantMemb
     if (submitBtn && isElementVisible(submitBtn)) {
       console.log('[AGP:AutoJoin] Clicking modal submit button...');
       submitBtn.click();
-      await sleep(1200);
+      const waitSubmit = Date.now();
+      while (Date.now() - waitSubmit < 600) {
+        if (!document.querySelector('div[role="dialog"]')) break;
+        await sleep(20);
+      }
     }
   }
 
   // Check if user is now an instant member and composer is available
   const startCheck = Date.now();
-  while (Date.now() - startCheck < 3500) {
+  while (Date.now() - startCheck < 2500) {
     const composerTrigger = findComposerTrigger();
     if (composerTrigger && isElementVisible(composerTrigger)) {
       console.log('[AGP:AutoJoin] Instant membership granted! Composer available.');
       showToast('✅ Joined group! Post box ready.', true);
       return { success: true, isInstantMember: true, reason: 'Instant member' };
     }
-    await sleep(250);
+    await sleep(25);
   }
 
   // Check if request was successfully sent and is pending admin review
@@ -1271,8 +1278,6 @@ async function findAndClickPostButton(dialog: HTMLElement, timeoutMs = 15000): P
 
         if (isPostMatch && !disabledAttr) {
           btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-          await sleep(30);
-
           btn.style.outline = '3px solid #10b981';
           btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
           btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
@@ -1283,7 +1288,7 @@ async function findAndClickPostButton(dialog: HTMLElement, timeoutMs = 15000): P
         }
       }
     }
-    await sleep(40);
+    await sleep(10);
   }
   return false;
 }
@@ -1316,18 +1321,17 @@ async function runAutomatedPostingRoutine() {
 
     const joinResult = await attemptAutoJoinGroup();
     if (joinResult.isInstantMember) {
-      console.log('[AGP:AutoPost] Successfully auto-joined group! Proceeding with post...');
+      console.log('[AGP:AutoPost] Successfully auto-joined group! Proceeding with post immediately...');
       autoPostStatus = '⚡ Joined! Step 1/4: Opening Post Box...';
       renderHelperPanel();
       showToast('✅ Joined! Now opening post box...', true);
-      await sleep(1000);
-      // Fall through to openComposerModal and post!
+      // Proceed immediately to post without dead delay
     } else {
       // Pending admin approval or join request submitted
       autoPostStatus = `⚡ ${joinResult.reason}. Advancing to next group...`;
       renderHelperPanel();
       showToast(`⚡ ${joinResult.reason}`, true);
-      await sleep(1800);
+      await sleep(100);
       await autoSkipCurrentGroup(joinResult.reason);
       return;
     }
@@ -1454,7 +1458,6 @@ async function runAutomatedPostingRoutine() {
           });
           if (okBtn) {
             okBtn.click();
-            await sleep(150);
             postFinished = true;
             break;
           }
@@ -1462,7 +1465,7 @@ async function runAutomatedPostingRoutine() {
       }
 
       if (postFinished) break;
-      await sleep(60);
+      await sleep(10);
     }
 
     // Verify if submission actually succeeded
@@ -1524,7 +1527,7 @@ function startAutoPostingCountdown() {
     renderHelperPanel();
     setTimeout(() => {
       autoSkipCurrentGroup('Group unavailable on Facebook');
-    }, 100);
+    }, 10);
     return;
   }
 
@@ -1536,7 +1539,7 @@ function startAutoPostingCountdown() {
       if (!autoPilotPaused) {
         autoSkipCurrentGroup('Wrong group URL detected');
       }
-    }, 200);
+    }, 20);
     return;
   }
 
@@ -1553,7 +1556,7 @@ function startAutoPostingCountdown() {
       if (!autoPilotPaused && !isAutoPosting) {
         runAutomatedPostingRoutine();
       }
-    }, 100);
+    }, 0);
     return;
   }
 
@@ -1563,7 +1566,7 @@ function startAutoPostingCountdown() {
     renderHelperPanel();
     setTimeout(() => {
       autoSkipCurrentGroup(restriction.reason);
-    }, 200);
+    }, 20);
     return;
   }
 
@@ -1578,7 +1581,7 @@ function startAutoPostingCountdown() {
     if (!autoPilotPaused && !isAutoPosting) {
       runAutomatedPostingRoutine();
     }
-  }, 80);
+  }, 0);
 }
 
 
@@ -2726,8 +2729,8 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
 
         const result = await performProgressiveGroupScan({
           maxRounds: 350,
-          stagnantLimit: 30,
-          scrollDelayMs: 900,
+          stagnantLimit: 25,
+          scrollDelayMs: 75,
           accountContext,
           onBatchDiscovered: async (items, totalSoFar, metrics) => {
             lastDiscoveryMetrics = metrics;
@@ -3007,8 +3010,8 @@ async function triggerAutoScanIfJoinsPage() {
     try {
       const result = await performProgressiveGroupScan({
         maxRounds: 350,
-        stagnantLimit: 30,
-        scrollDelayMs: 900,
+        stagnantLimit: 25,
+        scrollDelayMs: 75,
         onBatchDiscovered: async (items, totalSoFar) => {
           // Also merge any intercepted groups from GraphQL responses
           const intercepted = getInterceptedGroupsAsDiscovered();
@@ -3057,27 +3060,56 @@ async function triggerAutoScanIfJoinsPage() {
   }
 }
 
-// Install GraphQL interceptor immediately on /groups/joins/ page
-if (window.location.href.toLowerCase().includes('/groups/joins') || window.location.href.toLowerCase().includes('category=membership')) {
-  installGraphQLInterceptor();
-}
-
-// Run on page idle and observe URL transitions
-inspectPageAndConnect();
-// Wait 3 seconds for Facebook's React DOM to fully render before scanning
-setTimeout(triggerAutoScanIfJoinsPage, 3000);
-
-let lastUrl = window.location.href;
-const observer = new MutationObserver(() => {
-  if (window.location.href !== lastUrl) {
-    lastUrl = window.location.href;
-    inspectPageAndConnect();
-    // Install interceptor if navigating to joins page
-    if (lastUrl.toLowerCase().includes('/groups/joins') || lastUrl.toLowerCase().includes('category=membership')) {
-      installGraphQLInterceptor();
+// Listen for instantaneous groups captured by the MAIN-world GraphQL interceptor and instant URL changes
+window.addEventListener('message', (e) => {
+  if (e.source !== window || !e.data) return;
+  if (e.data.type === 'AGP_MAIN_GRAPHQL_GROUPS' && Array.isArray(e.data.groups)) {
+    for (const g of e.data.groups) {
+      if (g.id && g.name) {
+        interceptedGroups.set(g.id, { name: g.name, id: g.id });
+      }
     }
-    setTimeout(triggerAutoScanIfJoinsPage, 3000);
+    console.log(`[AGP:Content] Intercepted ${interceptedGroups.size} groups from MAIN world GraphQL`);
+  }
+  if (e.data.type === 'AGP_MAIN_URL_CHANGED') {
+    handleUrlTransition();
   }
 });
-observer.observe(document.body, { childList: true, subtree: true });
+
+// Direct runtime message from service worker for 0ms group navigation
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === 'AGP_NAVIGATE_TO_GROUP') {
+    handleUrlTransition();
+  }
+});
+
+// Run initial inspection immediately
+inspectPageAndConnect();
+setTimeout(triggerAutoScanIfJoinsPage, 100);
+
+// High-performance, zero-overhead navigation tracker
+let lastTrackedUrl = window.location.href;
+function handleUrlTransition() {
+  if (window.location.href !== lastTrackedUrl) {
+    lastTrackedUrl = window.location.href;
+    inspectPageAndConnect();
+    setTimeout(triggerAutoScanIfJoinsPage, 100);
+  }
+}
+
+window.addEventListener('popstate', handleUrlTransition, { passive: true });
+window.addEventListener('hashchange', handleUrlTransition, { passive: true });
+setInterval(handleUrlTransition, 40);
+
+// Active Posting Keepalive: Prevents Chrome MV3 Service Worker dormancy while posting is running
+setInterval(() => {
+  if (isAutoPosting || (activePayload && activePayload.queueItem)) {
+    try {
+      chrome.runtime.sendMessage({ type: 'KEEPALIVE_PING' }, () => {
+        if (chrome.runtime.lastError) {} // Suppress transient errors
+      });
+    } catch (_) {}
+  }
+}, 10000);
+
 

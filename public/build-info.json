@@ -1,0 +1,8 @@
+{
+  "version": "1.0.1",
+  "commitSha": "33b84ad5f000c0e7f880c3543f8e8b64650f67dc",
+  "shortSha": "33b84ad",
+  "message": "fix: resilient bulk group import for malformed JSON fragments and groupId-only items",
+  "commitDate": "2026-10-25T15:02:31+06:00",
+  "builtAt": "2026-10-26T19:05:15.096Z"
+}

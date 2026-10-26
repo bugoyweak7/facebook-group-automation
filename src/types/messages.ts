@@ -44,7 +44,8 @@ export type RuntimeMessageType =
   | 'AUTO_JOIN_PAUSE_ON_PAGE'
   | 'AUTO_JOIN_RESUME_ON_PAGE'
   | 'AUTO_JOIN_STOP_ON_PAGE'
-  | 'AUTO_JOIN_SAVE_GROUPS';
+  | 'AUTO_JOIN_SAVE_GROUPS'
+  | 'KEEPALIVE_PING';
 
 export interface RuntimeMessage<T = unknown> {
   type: RuntimeMessageType;

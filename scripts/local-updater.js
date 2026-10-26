@@ -13,6 +13,7 @@
 import http from 'http';
 import { exec } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,15 +24,35 @@ const PORT = 3959;
 const HOST = '127.0.0.1';
 
 function runCommand(cmd, cwd = rootDir) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     exec(cmd, { cwd, maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+      const out = (stdout || '') + (stderr ? '\n' + stderr : '');
       if (error) {
-        resolve({ success: false, output: stdout + '\n' + stderr, error: error.message });
+        resolve({ success: false, output: out.trim(), error: error.message });
       } else {
-        resolve({ success: true, output: stdout + (stderr ? '\n' + stderr : '') });
+        resolve({ success: true, output: out.trim() });
       }
     });
   });
+}
+
+async function getGitCommitDetails() {
+  try {
+    const gitLogRes = await runCommand('git log -1 --format="%H|%h|%s|%an|%cI"');
+    const gitBranchRes = await runCommand('git branch --show-current');
+
+    const parts = (gitLogRes.output || '').trim().split('|');
+    const sha = parts[0] || '';
+    const shortSha = parts[1] || '';
+    const message = parts[2] || '';
+    const author = parts[3] || '';
+    const date = parts[4] || '';
+    const branch = (gitBranchRes.output || 'main').trim();
+
+    return { sha, shortSha, message, author, date, branch };
+  } catch {
+    return { sha: '', shortSha: '', message: '', author: '', date: '', branch: 'main' };
+  }
 }
 
 const server = http.createServer(async (req, res) => {
@@ -48,26 +69,33 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
 
+  // Route 0: Quick health check
+  if (url.pathname === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, status: 'alive' }));
+    return;
+  }
+
   // Route 1: Status check
   if (url.pathname === '/status') {
     try {
-      const gitLogRes = await runCommand('git log -1 --format="%H|%h|%s|%an|%cI"');
-      const gitBranchRes = await runCommand('git branch --show-current');
-
-      const parts = (gitLogRes.output || '').trim().split('|');
-      const sha = parts[0] || '';
-      const shortSha = parts[1] || '';
-      const message = parts[2] || '';
-      const author = parts[3] || '';
-      const date = parts[4] || '';
-      const branch = (gitBranchRes.output || 'main').trim();
+      const details = await getGitCommitDetails();
+      const statusRes = await runCommand('git status --porcelain');
+      const isDirty = Boolean(statusRes.output && statusRes.output.trim());
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({
         ok: true,
         server: 'AI Group Poster Local Companion',
-        branch,
-        commit: { sha, shortSha, message, author, date },
+        branch: details.branch,
+        commit: {
+          sha: details.sha,
+          shortSha: details.shortSha,
+          message: details.message,
+          author: details.author,
+          date: details.date,
+        },
+        hasUncommittedChanges: isDirty,
       }));
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -78,25 +106,53 @@ const server = http.createServer(async (req, res) => {
 
   // Route 2: Update from GitHub (git pull + build)
   if (url.pathname === '/update-from-github' && (req.method === 'POST' || req.method === 'GET')) {
-    console.log('\n🔄 [Companion] Received update request from Extension!');
+    console.log('\n======================================================');
+    console.log('🔄 [Companion] Received update request from Extension!');
     console.log('📥 Step 1/2: Pulling latest changes from GitHub (git pull origin main)...');
 
-    const pullRes = await runCommand('git pull origin main');
-    console.log(pullRes.output.trim());
+    // Handle unstaged changes safely with autostash
+    const pullRes = await runCommand('git pull --autostash origin main');
+    console.log(pullRes.output);
+
+    if (!pullRes.success) {
+      console.error('❌ [Companion] Git pull encountered an error:', pullRes.error || pullRes.output);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: false,
+        ok: false,
+        message: `Git pull failed: ${pullRes.error || pullRes.output}`,
+        pullOutput: pullRes.output,
+      }));
+      return;
+    }
 
     console.log('🔨 Step 2/2: Building extension (node scripts/build-extension.js)...');
     const buildRes = await runCommand('node scripts/build-extension.js');
-    console.log(buildRes.output.trim());
+    console.log(buildRes.output);
 
-    const overallSuccess = buildRes.success;
+    if (!buildRes.success) {
+      console.error('❌ [Companion] Build extension failed:', buildRes.error || buildRes.output);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: false,
+        ok: false,
+        message: `Extension build failed. Details: ${buildRes.error || buildRes.output}`,
+        pullOutput: pullRes.output,
+        buildOutput: buildRes.output,
+      }));
+      return;
+    }
 
-    res.writeHead(overallSuccess ? 200 : 500, { 'Content-Type': 'application/json' });
+    const latestDetails = await getGitCommitDetails();
+    console.log(`✨ [Companion] Update successful! Current Commit: ${latestDetails.shortSha}`);
+    console.log('======================================================\n');
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      success: overallSuccess,
-      ok: overallSuccess,
-      message: overallSuccess
-        ? 'Successfully pulled latest changes from GitHub and rebuilt extension!'
-        : 'Update or build encountered an issue. See details.',
+      success: true,
+      ok: true,
+      message: 'Extension successfully updated from GitHub and rebuilt!',
+      commit: latestDetails,
       pullOutput: pullRes.output,
       buildOutput: buildRes.output,
     }));
@@ -108,10 +164,24 @@ const server = http.createServer(async (req, res) => {
     console.log('\n🔨 [Companion] Rebuilding extension bundle...');
     const buildRes = await runCommand('node scripts/build-extension.js');
 
-    res.writeHead(buildRes.success ? 200 : 500, { 'Content-Type': 'application/json' });
+    if (!buildRes.success) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: false,
+        ok: false,
+        message: `Rebuild failed: ${buildRes.error || buildRes.output}`,
+        buildOutput: buildRes.output,
+      }));
+      return;
+    }
+
+    const latestDetails = await getGitCommitDetails();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
-      success: buildRes.success,
-      message: buildRes.success ? 'Extension rebuilt successfully!' : 'Build failed',
+      success: true,
+      ok: true,
+      message: 'Extension rebuilt successfully!',
+      commit: latestDetails,
       buildOutput: buildRes.output,
     }));
     return;

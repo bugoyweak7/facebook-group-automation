@@ -23,6 +23,10 @@ export interface BulkParseSummary {
   duplicateItems: ParsedGroupItem[];
   invalidItems: ParsedGroupItem[];
   groupsToCreate: Group[];
+  groupsToUpdate: Group[];
+  mergedGroups: Group[];
+  addedCount: number;
+  updatedCount: number;
 }
 
 export interface GroupJsonItem {
@@ -130,9 +134,6 @@ export function formatDefaultGroupName(slugOrId: string): string {
 
 /**
  * Extracts URL and optional Name from a raw line of text.
- */
-/**
- * Extracts URL and optional Name from a raw line of text.
  * Supports standard URLs, missing http schemes, JSON-like key-values, and numeric group IDs.
  */
 export function extractGroupInfoFromLine(line: string): { name: string; url: string } | null {
@@ -180,7 +181,7 @@ export function extractGroupInfoFromLine(line: string): { name: string; url: str
   }
 
   // 3. JSON-like line containing groupId or id: e.g. "groupId": "274906757200196"
-  const groupIdKeyMatch = trimmed.match(/["']?(?:groupId|group_id|id)["']?\s*[:=]\s*["']?([0-9a-zA-Z._-]+)["']?/i);
+  const groupIdKeyMatch = trimmed.match(/["']?(?:groupId|group_id|id|uid|gid|fbid)["']?\s*[:=]\s*["']?([0-9a-zA-Z._-]+)["']?/i);
   if (groupIdKeyMatch) {
     const gId = groupIdKeyMatch[1].replace(/[.,;:!?)]+$/, '');
     if (gId && !/^(feed|discover|joins|about|settings|search|true|false|null)$/i.test(gId)) {
@@ -229,13 +230,32 @@ interface CandidateEntry {
 }
 
 /**
- * Builds a standardized candidate entry from an object or raw fields.
+ * Builds a standardized candidate entry from an object, string, or number,
+ * handling all property aliases found across various Facebook extensions.
  */
 function buildCandidate(item: any, rawStr?: string): CandidateEntry | null {
-  if (!item) return null;
+  if (item === null || item === undefined) return null;
 
+  // Case 1: Pure number (e.g. 274906757200196)
+  if (typeof item === 'number') {
+    const numStr = String(item).trim();
+    if (/^\d{8,25}$/.test(numStr)) {
+      return {
+        name: formatDefaultGroupName(numStr),
+        url: `https://www.facebook.com/groups/${numStr}/`,
+        groupId: numStr,
+        raw: String(item),
+      };
+    }
+    return null;
+  }
+
+  // Case 2: String
   if (typeof item === 'string') {
-    const extracted = extractGroupInfoFromLine(item);
+    const trimmedStr = item.trim();
+    if (!trimmedStr) return null;
+
+    const extracted = extractGroupInfoFromLine(trimmedStr);
     if (extracted) {
       return {
         name: extracted.name,
@@ -243,7 +263,7 @@ function buildCandidate(item: any, rawStr?: string): CandidateEntry | null {
         raw: item,
       };
     }
-    const trimmedStr = item.trim();
+
     if (/^\d{8,25}$/.test(trimmedStr)) {
       return {
         name: formatDefaultGroupName(trimmedStr),
@@ -252,43 +272,210 @@ function buildCandidate(item: any, rawStr?: string): CandidateEntry | null {
         raw: item,
       };
     }
+
+    if (trimmedStr.startsWith('/groups/') || trimmedStr.startsWith('groups/')) {
+      const fixed = 'https://www.facebook.com/' + trimmedStr.replace(/^\/+/, '');
+      return {
+        name: '',
+        url: fixed,
+        raw: item,
+      };
+    }
+
     return null;
   }
 
+  // Case 3: Object (handles formats from all other extensions)
   if (typeof item === 'object') {
-    let rawUrl = String(item.url || item.cleanUrl || item.link || '').trim();
-    const rawGroupId = String(item.groupId || item.id || item.group_id || '').trim();
-    const rawName = String(item.name || item.groupName || item.title || '').trim();
+    // 1. Extract URL (checking all common aliases across other extensions)
+    let rawUrl = String(
+      item.url ||
+      item.cleanUrl ||
+      item.link ||
+      item.fb_url ||
+      item.fbUrl ||
+      item.groupUrl ||
+      item.group_url ||
+      item.href ||
+      item.uri ||
+      item.targetUrl ||
+      item.target_url ||
+      item.permalink ||
+      item.facebookUrl ||
+      item.facebook_url ||
+      item.web_url ||
+      item.webUrl ||
+      item.fb_link ||
+      item.groupLink ||
+      ''
+    ).trim();
+
+    // 2. Extract Group ID (checking all aliases)
+    let rawGroupId = String(
+      item.groupId ||
+      item.id ||
+      item.group_id ||
+      item.uid ||
+      item.gid ||
+      item.fbid ||
+      item.fb_id ||
+      item.group_uid ||
+      item.target_id ||
+      item.id_group ||
+      item.fbId ||
+      item.groupUid ||
+      ''
+    ).trim();
+
+    // 3. Extract Name (checking all aliases)
+    const rawName = String(
+      item.name ||
+      item.groupName ||
+      item.group_name ||
+      item.title ||
+      item.groupTitle ||
+      item.group_title ||
+      item.label ||
+      item.text ||
+      item.description ||
+      item.subject ||
+      item.headline ||
+      item.caption ||
+      item.group_text ||
+      item.name_group ||
+      ''
+    ).trim();
+
+    // Fix relative or bare paths
+    if (rawUrl) {
+      if (rawUrl.startsWith('/groups/')) {
+        rawUrl = 'https://www.facebook.com' + rawUrl;
+      } else if (rawUrl.startsWith('groups/')) {
+        rawUrl = 'https://www.facebook.com/' + rawUrl;
+      } else if (/^\d{8,25}$/.test(rawUrl)) {
+        if (!rawGroupId) rawGroupId = rawUrl;
+        rawUrl = `https://www.facebook.com/groups/${rawUrl}/`;
+      } else if (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://')) {
+        if (rawUrl.includes('facebook.com/groups/')) {
+          rawUrl = 'https://' + rawUrl.replace(/^\/+/, '');
+        }
+      }
+    }
 
     // Auto-generate canonical URL if only groupId/id was given
     if (!rawUrl && rawGroupId) {
       rawUrl = `https://www.facebook.com/groups/${rawGroupId}/`;
     }
 
-    // If rawUrl is just a numeric ID or slug without slashes/domain
-    if (rawUrl && /^\d{8,25}$/.test(rawUrl)) {
-      rawUrl = `https://www.facebook.com/groups/${rawUrl}/`;
-    }
-
     if (!rawUrl && !rawGroupId) return null;
 
+    // 4. Privacy
     let privacy: GroupPrivacy | undefined = undefined;
-    if (item.privacy) {
-      const pStr = String(item.privacy).toUpperCase();
+    const rawPriv = item.privacy || item.privacyType || item.privacy_type || item.type || item.groupPrivacy || item.group_privacy;
+    if (rawPriv) {
+      const pStr = String(rawPriv).toUpperCase();
       if (pStr === 'PUBLIC' || pStr === 'PRIVATE') {
         privacy = pStr as GroupPrivacy;
       }
+    } else if (item.is_private === true || item.isPrivate === true) {
+      privacy = 'PRIVATE';
+    } else if (item.is_private === false || item.isPrivate === false) {
+      privacy = 'PUBLIC';
     }
+
+    // 5. Category
+    const category = item.category || item.groupCategory || item.group_category || item.tag || item.tags || item.folder || item.typeCategory;
+
+    // 6. Notes
+    const notes = item.notes || item.note || item.comment || item.comments || item.remarks || item.desc || item.extra;
 
     return {
       name: rawName || (rawGroupId ? formatDefaultGroupName(rawGroupId) : ''),
       url: rawUrl,
       groupId: rawGroupId || undefined,
-      category: item.category ? String(item.category).trim() : undefined,
+      category: category ? String(category).trim() : undefined,
       privacy,
-      notes: item.notes ? String(item.notes).trim() : undefined,
+      notes: notes ? String(notes).trim() : undefined,
       raw: rawStr || JSON.stringify(item),
     };
+  }
+
+  return null;
+}
+
+/**
+ * Recursively locates any array of group items or key-value dictionary in parsed JSON.
+ */
+function findArrayOfCandidates(obj: any, depth = 0): any[] | null {
+  if (!obj || typeof obj !== 'object' || depth > 4) return null;
+
+  if (Array.isArray(obj)) {
+    return obj;
+  }
+
+  const RESERVED_KEYS = new Set([
+    'name', 'title', 'category', 'privacy', 'status', 'version', 'type', 'notes',
+    'description', 'groups', 'items', 'data', 'results', 'settings', 'options', 'config', 'url', 'id', 'groupId'
+  ]);
+
+  // Common wrapper keys used by other Chrome extensions and backup files
+  const preferredKeys = [
+    'groups',
+    'items',
+    'data',
+    'results',
+    'groupList',
+    'groupsList',
+    'fb_groups',
+    'fbGroups',
+    'my_groups',
+    'myGroups',
+    'joined_groups',
+    'joinedGroups',
+    'list',
+    'rows',
+    'savedGroups',
+    'allGroups',
+    'groupsData',
+  ];
+
+  for (const k of preferredKeys) {
+    if (Array.isArray(obj[k]) && obj[k].length > 0) {
+      return obj[k];
+    }
+  }
+
+  // Check direct property holding an array
+  for (const [_, val] of Object.entries(obj)) {
+    if (Array.isArray(val) && val.length > 0) {
+      return val;
+    }
+  }
+
+  // Check if obj itself is an ID-to-group map (e.g. { "274906757200196": { "name": "Dhaka Market" } })
+  const entries = Object.entries(obj);
+  if (entries.length > 0) {
+    const isIdMap = entries.every(([k, v]) =>
+      ((/^\d{5,25}$/.test(k)) || (/^[a-zA-Z0-9._-]{5,}$/.test(k) && !RESERVED_KEYS.has(k.toLowerCase()))) &&
+      (typeof v === 'object' || typeof v === 'string')
+    );
+
+    if (isIdMap) {
+      return entries.map(([key, val]) => {
+        if (typeof val === 'string') {
+          return { groupId: key, name: val, url: `https://www.facebook.com/groups/${key}/` };
+        }
+        return { groupId: key, ...(val as any) };
+      });
+    }
+  }
+
+  // Check nested objects (e.g. obj.data.groups or obj.state.groups)
+  for (const [k, val] of entries) {
+    if (val && typeof val === 'object' && !Array.isArray(val) && !RESERVED_KEYS.has(k.toLowerCase())) {
+      const nested = findArrayOfCandidates(val, depth + 1);
+      if (nested && nested.length > 0) return nested;
+    }
   }
 
   return null;
@@ -298,11 +485,11 @@ function buildCandidate(item: any, rawStr?: string): CandidateEntry | null {
  * Extracts a candidate from an unparsed text block using regex heuristics.
  */
 function extractCandidateFromRegexBlock(block: string): CandidateEntry | null {
-  const gIdMatch = block.match(/["']?(?:groupId|group_id|id)["']?\s*[:=]\s*["']?([0-9a-zA-Z._-]+)["']?/i);
-  const urlMatch = block.match(/["']?(?:url|cleanUrl|link)["']?\s*[:=]\s*["']([^"']+)["']/i);
-  const nameMatch = block.match(/["']?(?:name|groupName|title)["']?\s*[:=]\s*["']([^"']+)["']/i);
-  const catMatch = block.match(/["']?category["']?\s*[:=]\s*["']([^"']+)["']/i);
-  const privMatch = block.match(/["']?privacy["']?\s*[:=]\s*["'](PUBLIC|PRIVATE)["']/i);
+  const gIdMatch = block.match(/["']?(?:groupId|group_id|id|uid|gid|fbid)["']?\s*[:=]\s*["']?([0-9a-zA-Z._-]+)["']?/i);
+  const urlMatch = block.match(/["']?(?:url|cleanUrl|link|fb_url|href|permalink)["']?\s*[:=]\s*["']([^"']+)["']/i);
+  const nameMatch = block.match(/["']?(?:name|groupName|group_name|title|label|text)["']?\s*[:=]\s*["']([^"']+)["']/i);
+  const catMatch = block.match(/["']?(?:category|tag)["']?\s*[:=]\s*["']([^"']+)["']/i);
+  const privMatch = block.match(/["']?(?:privacy|type)["']?\s*[:=]\s*["'](PUBLIC|PRIVATE)["']/i);
   const notesMatch = block.match(/["']?notes["']?\s*[:=]\s*["']([^"']+)["']/i);
 
   const rawGroupId = gIdMatch ? gIdMatch[1].trim() : '';
@@ -340,7 +527,7 @@ function extractCandidateFromRegexBlock(block: string): CandidateEntry | null {
  */
 function extractStructuredCandidates(trimmedInput: string): { candidates: CandidateEntry[]; handled: boolean } {
   const hasJsonIndicators =
-    /["']?(?:groupId|group_id|cleanUrl|privacy|category|groups|items)["']?\s*:|[{}\[\]]/.test(trimmedInput);
+    /["']?(?:groupId|group_id|cleanUrl|privacy|category|groups|items|data|results|id|name|url|link|uid|gid)["']?\s*:|[{}\[\]]/.test(trimmedInput);
 
   if (!hasJsonIndicators) {
     return { candidates: [], handled: false };
@@ -361,20 +548,9 @@ function extractStructuredCandidates(trimmedInput: string): { candidates: Candid
   for (const textAttempt of attempts) {
     try {
       const parsed = JSON.parse(textAttempt);
-      let itemsList: any[] = [];
-      if (Array.isArray(parsed)) {
-        itemsList = parsed;
-      } else if (parsed && typeof parsed === 'object') {
-        if (Array.isArray(parsed.groups)) {
-          itemsList = parsed.groups;
-        } else if (Array.isArray(parsed.items)) {
-          itemsList = parsed.items;
-        } else if (parsed.groupId || parsed.url || parsed.cleanUrl || parsed.link) {
-          itemsList = [parsed];
-        }
-      }
+      const itemsList = findArrayOfCandidates(parsed);
 
-      if (itemsList.length > 0) {
+      if (itemsList && itemsList.length > 0) {
         const foundCandidates: CandidateEntry[] = [];
         for (const it of itemsList) {
           const c = buildCandidate(it);
@@ -383,13 +559,18 @@ function extractStructuredCandidates(trimmedInput: string): { candidates: Candid
         if (foundCandidates.length > 0) {
           return { candidates: foundCandidates, handled: true };
         }
+      } else if (parsed && typeof parsed === 'object') {
+        const c = buildCandidate(parsed);
+        if (c) {
+          return { candidates: [c], handled: true };
+        }
       }
     } catch {
       // Continue to next attempt
     }
   }
 
-  // --- Layer 2: Unified Chunk Splitting by '}' (handles both '{...}' objects and truncated objects missing opening '{') ---
+  // --- Layer 2: Unified Chunk Splitting by '}' (handles multiple objects or fragmented objects) ---
   const chunks = trimmedInput.split('}');
   const recoveredCandidates: CandidateEntry[] = [];
 
@@ -398,7 +579,7 @@ function extractStructuredCandidates(trimmedInput: string): { candidates: Candid
     if (!chunk) continue;
 
     // Must contain group identifier
-    if (!/["']?(?:groupId|group_id|url|cleanUrl|link)["']?\s*[:=]/i.test(chunk)) {
+    if (!/["']?(?:groupId|group_id|id|uid|gid|url|cleanUrl|link|name|fb_url)["']?\s*[:=]/i.test(chunk)) {
       continue;
     }
 
@@ -437,8 +618,120 @@ function extractStructuredCandidates(trimmedInput: string): { candidates: Candid
 }
 
 /**
+ * Matches an incoming group candidate to an existing group in saved storage.
+ */
+export function findMatchingExistingGroup(
+  cleanUrl: string,
+  groupId: string | undefined,
+  existingGroups: Group[]
+): Group | undefined {
+  if (!existingGroups || existingGroups.length === 0) return undefined;
+
+  const normCleanUrl = (cleanUrl || '').trim().toLowerCase();
+  const normGroupId = (groupId || '').trim().toLowerCase();
+
+  return existingGroups.find(g => {
+    // 1. Direct URL match
+    if (g.url && g.url.trim().toLowerCase() === normCleanUrl) return true;
+
+    // 2. Clean URL match using validator
+    const gVal = validateFacebookGroupUrl(g.url);
+    if (gVal.valid) {
+      if (normCleanUrl && gVal.cleanUrl && gVal.cleanUrl.toLowerCase() === normCleanUrl) return true;
+      if (normGroupId && gVal.groupId && gVal.groupId.toLowerCase() === normGroupId) return true;
+    }
+
+    // 3. Match by numeric or slug groupId
+    if (normGroupId && g.groupId && g.groupId.toLowerCase() === normGroupId) return true;
+
+    return false;
+  });
+}
+
+/**
+ * Checks if incoming candidate has new information to update an existing group.
+ */
+function checkAndUpdateGroup(
+  existingGroup: Group,
+  candidate: CandidateEntry,
+  defaultCategory: string,
+  defaultPrivacy: GroupPrivacy,
+  now: number
+): { updatedGroup: Group; wasModified: boolean } {
+  let wasModified = false;
+
+  const candidateName = (candidate.name || '').trim();
+  const isCandidateNameValid = Boolean(
+    candidateName &&
+    !/^Facebook Group(?: \(\d+\))?$/i.test(candidateName) &&
+    !/^\d+$/.test(candidateName)
+  );
+
+  const existingName = (existingGroup.name || '').trim();
+  const isExistingNameGeneric = Boolean(
+    !existingName ||
+    /^Facebook Group(?: \(\d+\))?$/i.test(existingName) ||
+    /^\d+$/.test(existingName)
+  );
+
+  let newName = existingGroup.name;
+  if (isCandidateNameValid && (isExistingNameGeneric || candidateName.toLowerCase() !== existingName.toLowerCase())) {
+    newName = candidateName;
+    wasModified = true;
+  }
+
+  // Category update
+  let newCategory = existingGroup.category || defaultCategory;
+  if (candidate.category && candidate.category.trim() && candidate.category.trim() !== existingGroup.category) {
+    newCategory = candidate.category.trim();
+    wasModified = true;
+  }
+
+  // Privacy update
+  let newPrivacy = existingGroup.privacy || defaultPrivacy;
+  if (candidate.privacy && candidate.privacy !== existingGroup.privacy) {
+    newPrivacy = candidate.privacy;
+    wasModified = true;
+  }
+
+  // Notes update
+  let newNotes = existingGroup.notes;
+  if (candidate.notes && candidate.notes.trim()) {
+    const cNotes = candidate.notes.trim();
+    if (!existingGroup.notes) {
+      newNotes = cNotes;
+      wasModified = true;
+    } else if (!existingGroup.notes.includes(cNotes)) {
+      newNotes = `${existingGroup.notes} | ${cNotes}`;
+      wasModified = true;
+    }
+  }
+
+  // Numeric GroupId if existing was missing it
+  let newGroupId = existingGroup.groupId;
+  if (candidate.groupId && /^\d+$/.test(candidate.groupId) && (!existingGroup.groupId || !/^\d+$/.test(existingGroup.groupId))) {
+    newGroupId = candidate.groupId;
+    wasModified = true;
+  }
+
+  const updatedGroup: Group = {
+    ...existingGroup,
+    name: newName,
+    category: newCategory,
+    privacy: newPrivacy,
+    notes: newNotes,
+    groupId: newGroupId,
+    verified: true,
+    updatedAt: wasModified ? now : existingGroup.updatedAt,
+  };
+
+  return { updatedGroup, wasModified };
+}
+
+/**
  * Parses multi-line text input OR JSON code into validated Group items,
- * detecting duplicates and preparing ready-to-save objects.
+ * detecting duplicates, intelligently updating existing groups with new details,
+ * and creating ready-to-save merged objects.
  */
 export function parseBulkGroupText(
   inputText: string,
@@ -451,6 +744,8 @@ export function parseBulkGroupText(
   const validItems: ParsedGroupItem[] = [];
   const duplicateItems: ParsedGroupItem[] = [];
   const invalidItems: ParsedGroupItem[] = [];
+  const groupsToCreate: Group[] = [];
+  const groupsToUpdate: Group[] = [];
 
   if (!trimmedInput) {
     return {
@@ -459,7 +754,19 @@ export function parseBulkGroupText(
       duplicateItems,
       invalidItems,
       groupsToCreate: [],
+      groupsToUpdate: [],
+      mergedGroups: existingGroups,
+      addedCount: 0,
+      updatedCount: 0,
     };
+  }
+
+  const now = Date.now();
+
+  // Create mutable map of existing groups to track in-place updates
+  const existingMap = new Map<string, Group>();
+  for (const g of existingGroups) {
+    existingMap.set(g.id, { ...g });
   }
 
   const seenGroupIds = new Set<string>();
@@ -512,7 +819,7 @@ export function parseBulkGroupText(
     }
   }
 
-  // 3. Process candidates
+  // 3. Process each candidate: validate, dedupe, update existing, or create new
   for (const candidate of candidates) {
     const val = validateFacebookGroupUrl(candidate.url);
     if (!val.valid) {
@@ -535,56 +842,105 @@ export function parseBulkGroupText(
     const finalGroupId = (val.groupId || candidate.groupId || '').toLowerCase();
     const finalName = candidate.name || formatDefaultGroupName(val.groupId || candidate.groupId || '');
 
-    const isExistingDuplicate = detectDuplicateGroup(cleanUrl, existingGroups);
+    // Check duplicate within incoming batch
     const isBatchDuplicate =
       (finalGroupId && seenGroupIds.has(finalGroupId)) ||
       seenCleanUrls.has(cleanUrl.toLowerCase());
 
-    const item: ParsedGroupItem = {
-      raw: candidate.raw,
-      name: finalName,
-      url: candidate.url,
-      cleanUrl,
-      groupId: val.groupId || candidate.groupId || '',
-      category: candidate.category || defaultCategory.trim() || 'General',
-      privacy: candidate.privacy || defaultPrivacy,
-      notes: candidate.notes,
-      isDuplicate: isExistingDuplicate || isBatchDuplicate,
-      duplicateReason: isExistingDuplicate
-        ? 'Already exists in your saved groups'
-        : isBatchDuplicate
-        ? 'Duplicate URL within this batch'
-        : undefined,
-      isValid: true,
-    };
+    if (isBatchDuplicate) {
+      duplicateItems.push({
+        raw: candidate.raw,
+        name: finalName,
+        url: candidate.url,
+        cleanUrl,
+        groupId: val.groupId || candidate.groupId || '',
+        category: candidate.category || defaultCategory.trim() || 'General',
+        privacy: candidate.privacy || defaultPrivacy,
+        notes: candidate.notes,
+        isDuplicate: true,
+        duplicateReason: 'Duplicate URL within this batch',
+        isValid: true,
+      });
+      continue;
+    }
 
-    if (item.isDuplicate) {
-      duplicateItems.push(item);
+    if (finalGroupId) seenGroupIds.add(finalGroupId);
+    seenCleanUrls.add(cleanUrl.toLowerCase());
+
+    // Check if group already exists in saved list
+    const matchingExisting = findMatchingExistingGroup(cleanUrl, val.groupId || candidate.groupId, existingGroups);
+
+    if (matchingExisting) {
+      // Group already exists! Apply intelligent update to existing group
+      const currentStored = existingMap.get(matchingExisting.id) || matchingExisting;
+      const { updatedGroup, wasModified } = checkAndUpdateGroup(
+        currentStored,
+        candidate,
+        defaultCategory,
+        defaultPrivacy,
+        now
+      );
+
+      existingMap.set(matchingExisting.id, updatedGroup);
+
+      if (wasModified) {
+        groupsToUpdate.push(updatedGroup);
+      }
+
+      duplicateItems.push({
+        raw: candidate.raw,
+        name: updatedGroup.name,
+        url: candidate.url,
+        cleanUrl,
+        groupId: updatedGroup.groupId || '',
+        category: updatedGroup.category || defaultCategory,
+        privacy: updatedGroup.privacy || defaultPrivacy,
+        notes: updatedGroup.notes,
+        isDuplicate: true,
+        duplicateReason: wasModified ? 'Updated existing group with new details' : 'Already exists in your saved groups',
+        isValid: true,
+      });
     } else {
+      // Brand new group!
+      const item: ParsedGroupItem = {
+        raw: candidate.raw,
+        name: finalName,
+        url: candidate.url,
+        cleanUrl,
+        groupId: val.groupId || candidate.groupId || '',
+        category: candidate.category || defaultCategory.trim() || 'General',
+        privacy: candidate.privacy || defaultPrivacy,
+        notes: candidate.notes,
+        isDuplicate: false,
+        isValid: true,
+      };
+
       validItems.push(item);
-      if (finalGroupId) seenGroupIds.add(finalGroupId);
-      seenCleanUrls.add(cleanUrl.toLowerCase());
+
+      const newGroup: Group = {
+        id: generateId('grp'),
+        name: item.name,
+        url: item.cleanUrl,
+        groupId: item.groupId,
+        category: item.category,
+        privacy: item.privacy,
+        notes: item.notes,
+        enabled: true,
+        selected: autoSelect,
+        status: 'READY',
+        postCount: 0,
+        verified: true,
+        source: 'import',
+        createdAt: now + groupsToCreate.length,
+        updatedAt: now,
+      };
+
+      groupsToCreate.push(newGroup);
     }
   }
 
-  const now = Date.now();
-  const groupsToCreate: Group[] = validItems.map((item, index) => ({
-    id: generateId('grp'),
-    name: item.name,
-    url: item.cleanUrl,
-    groupId: item.groupId,
-    category: item.category,
-    privacy: item.privacy,
-    notes: item.notes,
-    enabled: true,
-    selected: autoSelect,
-    status: 'READY',
-    postCount: 0,
-    verified: true,
-    source: 'import',
-    createdAt: now + index,
-    updatedAt: now,
-  }));
+  // Merged result: newly created groups at top, followed by all existing groups (with updates applied)
+  const mergedGroups: Group[] = [...groupsToCreate, ...Array.from(existingMap.values())];
 
   const totalLinesCount = isStructuredInput
     ? validItems.length + duplicateItems.length + invalidItems.length
@@ -596,5 +952,9 @@ export function parseBulkGroupText(
     duplicateItems,
     invalidItems,
     groupsToCreate,
+    groupsToUpdate,
+    mergedGroups,
+    addedCount: groupsToCreate.length,
+    updatedCount: groupsToUpdate.length,
   };
 }

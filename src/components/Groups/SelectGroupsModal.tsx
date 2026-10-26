@@ -241,26 +241,37 @@ export const SelectGroupsModal: React.FC<SelectGroupsModalProps> = ({
     }
 
     const summary = parseBulkGroupText(importText, groups, importCategory, 'PUBLIC', true);
-    if (summary.groupsToCreate.length === 0) {
+    if (summary.groupsToCreate.length === 0 && summary.groupsToUpdate.length === 0) {
       if (summary.duplicateItems.length > 0) {
-        toast.info(`All ${summary.duplicateItems.length} group(s) already exist in your saved groups.`);
+        toast.info(`All ${summary.duplicateItems.length} group(s) already exist with identical details.`);
       } else {
-        toast.warning('No valid Facebook groups or IDs could be found in the pasted text.');
+        toast.warning('No valid Facebook groups or IDs could be found in the pasted text/JSON.');
       }
       return;
     }
 
-    const updated = [...summary.groupsToCreate, ...groups];
+    const updated = summary.mergedGroups;
     if (onSaveGroups) {
       await onSaveGroups(updated);
     } else {
       await setGroups(updated);
     }
 
-    // Select imported ones
-    const importedIds = summary.groupsToCreate.map(g => g.id);
-    setSelectedIdsOrder(prev => [...importedIds, ...prev]);
-    toast.success(`Imported and added ${summary.groupsToCreate.length} group(s)!`);
+    // Select all newly created and updated groups
+    const affectedIds = [
+      ...summary.groupsToCreate.map(g => g.id),
+      ...summary.groupsToUpdate.map(g => g.id),
+    ];
+    setSelectedIdsOrder(prev => [...affectedIds, ...prev.filter(id => !affectedIds.includes(id))]);
+
+    if (summary.groupsToCreate.length > 0 && summary.groupsToUpdate.length > 0) {
+      toast.success(`✨ Added ${summary.groupsToCreate.length} new group(s) & updated ${summary.groupsToUpdate.length} existing!`);
+    } else if (summary.groupsToCreate.length > 0) {
+      toast.success(`✨ Imported and added ${summary.groupsToCreate.length} group(s)!`);
+    } else {
+      toast.success(`✨ Updated ${summary.groupsToUpdate.length} existing group(s) with new details!`);
+    }
+
     setImportText('');
     setActiveTab('my-groups');
   };

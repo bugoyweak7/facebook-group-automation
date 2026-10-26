@@ -225,5 +225,107 @@ Dhaka Tech Group, 112233445566778
     expect(summary.groupsToCreate[1].groupId).toBe('2222222222');
     expect(summary.groupsToCreate[1].name).toBe('Group Two');
   });
+
+  it('correctly updates existing groups when pasted JSON contains updated names or categories', () => {
+    const existingGroups: Group[] = [
+      {
+        id: 'grp_existing_1',
+        name: 'Facebook Group (274906757200196)',
+        url: 'https://www.facebook.com/groups/274906757200196/',
+        groupId: '274906757200196',
+        category: 'General',
+        privacy: 'PUBLIC',
+        enabled: true,
+        selected: false,
+        status: 'READY',
+        postCount: 5,
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+      {
+        id: 'grp_existing_2',
+        name: 'Old Untouched Group',
+        url: 'https://www.facebook.com/groups/untouchedgroup/',
+        groupId: 'untouchedgroup',
+        category: 'Old Category',
+        privacy: 'PUBLIC',
+        enabled: true,
+        selected: false,
+        status: 'READY',
+        postCount: 2,
+        createdAt: 1000,
+        updatedAt: 1000,
+      },
+    ];
+
+    // User pastes JSON from another extension with updated name, category, and 1 new group
+    const pastedJsonFromOtherExtension = JSON.stringify({
+      data: [
+        {
+          gid: '274906757200196',
+          group_name: 'Dhaka Wholesale & Dropship Hub',
+          category: 'E-commerce',
+          notes: 'Special discount group',
+        },
+        {
+          group_id: '998877665544332',
+          title: 'Brand New Market',
+          fb_url: 'https://www.facebook.com/groups/998877665544332/',
+          category: 'Retail',
+        },
+      ],
+    });
+
+    const summary = parseBulkGroupText(pastedJsonFromOtherExtension, existingGroups);
+
+    expect(summary.groupsToCreate.length).toBe(1);
+    expect(summary.groupsToUpdate.length).toBe(1);
+    expect(summary.addedCount).toBe(1);
+    expect(summary.updatedCount).toBe(1);
+
+    // Verify the updated existing group maintained its id, postCount, but got new name & category
+    const updatedG1 = summary.groupsToUpdate[0];
+    expect(updatedG1.id).toBe('grp_existing_1');
+    expect(updatedG1.postCount).toBe(5);
+    expect(updatedG1.name).toBe('Dhaka Wholesale & Dropship Hub');
+    expect(updatedG1.category).toBe('E-commerce');
+    expect(updatedG1.notes).toBe('Special discount group');
+
+    // Verify mergedGroups contains all 3 groups (1 new + 2 existing with updates)
+    expect(summary.mergedGroups.length).toBe(3);
+    const inMergedG1 = summary.mergedGroups.find(g => g.id === 'grp_existing_1');
+    expect(inMergedG1?.name).toBe('Dhaka Wholesale & Dropship Hub');
+  });
+
+  it('handles JSON dictionary/map format from other extensions where keys are group IDs', () => {
+    const mapJson = JSON.stringify({
+      '1122334455': { name: 'Map Group 1', category: 'Tech' },
+      '6677889900': 'Map Group 2',
+    });
+
+    const summary = parseBulkGroupText(mapJson, []);
+
+    expect(summary.validItems.length).toBe(2);
+    expect(summary.groupsToCreate.length).toBe(2);
+    expect(summary.groupsToCreate[0].name).toBe('Map Group 1');
+    expect(summary.groupsToCreate[0].groupId).toBe('1122334455');
+    expect(summary.groupsToCreate[1].name).toBe('Map Group 2');
+    expect(summary.groupsToCreate[1].groupId).toBe('6677889900');
+  });
+
+  it('handles array of numeric IDs or relative URLs', () => {
+    const rawArray = JSON.stringify([
+      274906757200196,
+      { url: '/groups/relativegroup1/', name: 'Relative Group 1' },
+    ]);
+
+    const summary = parseBulkGroupText(rawArray, []);
+
+    expect(summary.validItems.length).toBe(2);
+    expect(summary.groupsToCreate.length).toBe(2);
+    expect(summary.groupsToCreate[0].groupId).toBe('274906757200196');
+    expect(summary.groupsToCreate[1].url).toBe('https://www.facebook.com/groups/relativegroup1/');
+    expect(summary.groupsToCreate[1].name).toBe('Relative Group 1');
+  });
 });
 

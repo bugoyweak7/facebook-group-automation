@@ -518,7 +518,7 @@ async function handleMembershipQuestionsModal(defaultAnswer: string): Promise<bo
       t.includes('জমা')
     ) {
       triggerClick(btn);
-      await new Promise(r => setTimeout(r, 60));
+      await new Promise(r => setTimeout(r, 15));
       break;
     }
   }
@@ -531,7 +531,7 @@ async function handleMembershipQuestionsModal(defaultAnswer: string): Promise<bo
       const ft = (fb.innerText || fb.textContent || fb.getAttribute('aria-label') || '').trim().toLowerCase();
       if (ft === 'submit' || ft === 'জমা দিন' || ft === 'done' || ft.includes('submit')) {
         triggerClick(fb);
-        await new Promise(r => setTimeout(r, 60));
+        await new Promise(r => setTimeout(r, 15));
         break;
       }
     }
@@ -805,7 +805,7 @@ export class AutoJoinerController {
           const prevHeight = document.body.scrollHeight;
           window.scrollBy({ top: 1800, behavior: 'auto' });
           window.dispatchEvent(new Event('scroll', { bubbles: true }));
-          await new Promise(r => setTimeout(r, 400));
+          await new Promise(r => setTimeout(r, 120));
 
           const newScanned = scanPageForGroupCards();
           const hasNewEligible = newScanned.some(

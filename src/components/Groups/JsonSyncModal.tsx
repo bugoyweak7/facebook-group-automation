@@ -98,8 +98,16 @@ export const JsonSyncModal: React.FC<JsonSyncModalProps> = ({
 
   // Perform import
   const handleApplyImport = async () => {
-    if (parsedSummary.groupsToCreate.length === 0) {
-      toast.error('No valid new groups found to import.');
+    const hasNew = parsedSummary.groupsToCreate.length > 0;
+    const hasUpdates = parsedSummary.groupsToUpdate.length > 0;
+
+    if (!hasNew && !hasUpdates && importMode === 'merge') {
+      toast.info('All groups in the pasted JSON are already up-to-date in your saved list.');
+      return;
+    }
+
+    if (parsedSummary.validItems.length === 0 && importMode === 'replace') {
+      toast.error('No valid groups found in the pasted JSON to replace.');
       return;
     }
 
@@ -109,8 +117,20 @@ export const JsonSyncModal: React.FC<JsonSyncModalProps> = ({
         await onReplaceAllGroups(parsedSummary.groupsToCreate);
         toast.success(`Replaced all groups with ${parsedSummary.groupsToCreate.length} groups from JSON!`);
       } else {
-        await onImportGroups(parsedSummary.groupsToCreate);
-        toast.success(`Successfully imported ${parsedSummary.groupsToCreate.length} groups from JSON!`);
+        // Merge mode: apply the complete merged list so both new groups are added and existing groups are updated
+        if (onReplaceAllGroups) {
+          await onReplaceAllGroups(parsedSummary.mergedGroups);
+        } else {
+          await onImportGroups(parsedSummary.mergedGroups);
+        }
+
+        if (hasNew && hasUpdates) {
+          toast.success(`✨ ${parsedSummary.groupsToCreate.length} new groups added and ${parsedSummary.groupsToUpdate.length} existing groups updated!`);
+        } else if (hasNew) {
+          toast.success(`✨ Successfully added ${parsedSummary.groupsToCreate.length} new groups from JSON!`);
+        } else {
+          toast.success(`✨ Successfully updated ${parsedSummary.groupsToUpdate.length} existing groups with new JSON data!`);
+        }
       }
       setPasteText('');
       onClose();
@@ -259,33 +279,43 @@ export const JsonSyncModal: React.FC<JsonSyncModalProps> = ({
 
             {/* Live Verification Stats */}
             {pasteText.trim() && (
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="p-2.5 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-emerald-300 font-semibold">
-                    <CheckCircle2 size={14} className="text-emerald-400" />
-                    <span>Valid Groups</span>
+              <div className="grid grid-cols-4 gap-2">
+                <div className="p-2 rounded-xl bg-emerald-950/30 border border-emerald-500/30 flex flex-col items-center justify-center text-center">
+                  <div className="flex items-center gap-1 text-[10px] text-emerald-300 font-semibold">
+                    <CheckCircle2 size={12} className="text-emerald-400" />
+                    <span>New Groups</span>
                   </div>
-                  <span className="text-sm font-bold font-mono text-emerald-400">
-                    {parsedSummary.validItems.length}
+                  <span className="text-base font-bold font-mono text-emerald-400 pt-0.5">
+                    {parsedSummary.groupsToCreate.length}
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-amber-950/30 border border-amber-500/30 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-amber-300 font-semibold">
-                    <AlertTriangle size={14} className="text-amber-400" />
-                    <span>Already Exists</span>
+                <div className="p-2 rounded-xl bg-blue-950/30 border border-blue-500/30 flex flex-col items-center justify-center text-center">
+                  <div className="flex items-center gap-1 text-[10px] text-blue-300 font-semibold">
+                    <RefreshCw size={12} className="text-blue-400" />
+                    <span>Updates</span>
                   </div>
-                  <span className="text-sm font-bold font-mono text-amber-400">
-                    {parsedSummary.duplicateItems.length}
+                  <span className="text-base font-bold font-mono text-blue-400 pt-0.5">
+                    {parsedSummary.groupsToUpdate.length}
                   </span>
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-rose-950/30 border border-rose-500/30 flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-rose-300 font-semibold">
-                    <XCircle size={14} className="text-rose-400" />
+                <div className="p-2 rounded-xl bg-slate-900 border border-slate-700/60 flex flex-col items-center justify-center text-center">
+                  <div className="flex items-center gap-1 text-[10px] text-slate-400 font-semibold">
+                    <Check size={12} className="text-slate-400" />
+                    <span>Identical</span>
+                  </div>
+                  <span className="text-base font-bold font-mono text-slate-400 pt-0.5">
+                    {Math.max(0, parsedSummary.duplicateItems.length - parsedSummary.groupsToUpdate.length)}
+                  </span>
+                </div>
+
+                <div className="p-2 rounded-xl bg-rose-950/30 border border-rose-500/30 flex flex-col items-center justify-center text-center">
+                  <div className="flex items-center gap-1 text-[10px] text-rose-300 font-semibold">
+                    <XCircle size={12} className="text-rose-400" />
                     <span>Invalid</span>
                   </div>
-                  <span className="text-sm font-bold font-mono text-rose-400">
+                  <span className="text-base font-bold font-mono text-rose-400 pt-0.5">
                     {parsedSummary.invalidItems.length}
                   </span>
                 </div>
@@ -303,7 +333,7 @@ export const JsonSyncModal: React.FC<JsonSyncModalProps> = ({
                   onChange={() => setImportMode('merge')}
                   className="text-indigo-600 focus:ring-0"
                 />
-                <span>Merge with existing groups (নতুন গ্রুপ যোগ করুন)</span>
+                <span>Merge & Update (নতুন গ্রুপ যোগ ও বিদ্যমান গ্রুপ আপডেট)</span>
               </label>
 
               {onReplaceAllGroups && (
@@ -322,24 +352,45 @@ export const JsonSyncModal: React.FC<JsonSyncModalProps> = ({
             </div>
 
             {/* Preview of Detected Groups */}
-            {parsedSummary.validItems.length > 0 && (
+            {(parsedSummary.groupsToCreate.length > 0 || parsedSummary.groupsToUpdate.length > 0) && (
               <div className="space-y-1.5">
-                <div className="text-xs font-semibold text-slate-400">
-                  Detected Groups ({parsedSummary.validItems.length} to add):
+                <div className="text-xs font-semibold text-slate-400 flex items-center justify-between">
+                  <span>Detected Groups to Process:</span>
+                  <span className="text-[10px] text-slate-500">
+                    {parsedSummary.groupsToCreate.length} new · {parsedSummary.groupsToUpdate.length} updating
+                  </span>
                 </div>
                 <div className="max-h-36 overflow-y-auto space-y-1 p-2 bg-slate-950 rounded-xl border border-slate-800 divide-y divide-slate-800/60">
-                  {parsedSummary.validItems.map((item, idx) => (
-                    <div key={idx} className="flex items-center justify-between gap-3 pt-1.5 pb-1 first:pt-0">
+                  {/* Newly created */}
+                  {parsedSummary.groupsToCreate.map((item, idx) => (
+                    <div key={`new-${idx}`} className="flex items-center justify-between gap-3 pt-1.5 pb-1 first:pt-0">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-[10px] font-bold font-mono text-indigo-400 bg-indigo-950/80 px-1.5 py-0.5 rounded">
-                          #{idx + 1}
+                        <span className="text-[9px] font-bold font-mono text-emerald-400 bg-emerald-950/80 px-1.5 py-0.5 rounded">
+                          +NEW
                         </span>
                         <span className="text-xs font-medium text-slate-200 truncate">
                           {item.name}
                         </span>
                       </div>
-                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[180px]">
-                        {item.cleanUrl}
+                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[170px]">
+                        {item.url}
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* Existing updated */}
+                  {parsedSummary.groupsToUpdate.map((item, idx) => (
+                    <div key={`upd-${idx}`} className="flex items-center justify-between gap-3 pt-1.5 pb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[9px] font-bold font-mono text-blue-400 bg-blue-950/80 px-1.5 py-0.5 rounded">
+                          UPDATE
+                        </span>
+                        <span className="text-xs font-medium text-slate-200 truncate">
+                          {item.name}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono text-slate-400 truncate max-w-[170px]">
+                        {item.url}
                       </span>
                     </div>
                   ))}
@@ -354,12 +405,16 @@ export const JsonSyncModal: React.FC<JsonSyncModalProps> = ({
                 size="md"
                 icon={<ArrowRight size={16} />}
                 isLoading={isImporting}
-                disabled={parsedSummary.validItems.length === 0}
+                disabled={
+                  importMode === 'merge'
+                    ? parsedSummary.groupsToCreate.length === 0 && parsedSummary.groupsToUpdate.length === 0
+                    : parsedSummary.validItems.length === 0
+                }
                 onClick={handleApplyImport}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 font-bold py-2.5 shadow-md shadow-emerald-600/20"
               >
-                {parsedSummary.validItems.length > 0
-                  ? `Import & Save ${parsedSummary.validItems.length} Groups Now (সব গ্রুপ যোগ করুন)`
+                {parsedSummary.groupsToCreate.length > 0 || parsedSummary.groupsToUpdate.length > 0
+                  ? `Import & Save (${parsedSummary.groupsToCreate.length} New, ${parsedSummary.groupsToUpdate.length} Updates)`
                   : 'Import Groups from JSON'}
               </Button>
             </div>

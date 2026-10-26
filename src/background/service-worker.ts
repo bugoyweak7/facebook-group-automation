@@ -158,9 +158,53 @@ async function runPacingDelay(delaySeconds: number): Promise<void> {
   await setQueueState({ ...finalState, pacingDelayRemaining: 0 });
 }
 
-// Track dedicated automation window and tab so all posting actions stay completely isolated in a small separate window
+// Track dedicated automation window and tab with local storage persistence across service worker lifecycles
 let activePostingWindowId: number | null = null;
 let activePostingTabId: number | null = null;
+
+async function getActivePostingWindowId(): Promise<number | null> {
+  if (activePostingWindowId) return activePostingWindowId;
+  try {
+    const data = await chrome.storage.local.get('agp_active_posting_window_id');
+    if (data?.agp_active_posting_window_id) {
+      activePostingWindowId = data.agp_active_posting_window_id;
+    }
+  } catch {}
+  return activePostingWindowId;
+}
+
+async function setActivePostingWindowId(winId: number | null): Promise<void> {
+  activePostingWindowId = winId;
+  try {
+    if (winId) {
+      await chrome.storage.local.set({ agp_active_posting_window_id: winId });
+    } else {
+      await chrome.storage.local.remove('agp_active_posting_window_id');
+    }
+  } catch {}
+}
+
+async function getActivePostingTabId(): Promise<number | null> {
+  if (activePostingTabId) return activePostingTabId;
+  try {
+    const data = await chrome.storage.local.get('agp_active_posting_tab_id');
+    if (data?.agp_active_posting_tab_id) {
+      activePostingTabId = data.agp_active_posting_tab_id;
+    }
+  } catch {}
+  return activePostingTabId;
+}
+
+async function setActivePostingTabId(tabId: number | null): Promise<void> {
+  activePostingTabId = tabId;
+  try {
+    if (tabId) {
+      await chrome.storage.local.set({ agp_active_posting_tab_id: tabId });
+    } else {
+      await chrome.storage.local.remove('agp_active_posting_tab_id');
+    }
+  } catch {}
+}
 
 /**
  * Orchestrates moving to the next item in the queue.
@@ -171,17 +215,19 @@ async function executeNextQueueItem(): Promise<void> {
 
   if (!nextItem) {
     // Queue completed! Cleanly close our dedicated automation window
-    if (activePostingWindowId) {
+    const curWinId = await getActivePostingWindowId();
+    const curTabId = await getActivePostingTabId();
+    if (curWinId) {
       try {
-        await chrome.windows.remove(activePostingWindowId);
+        await chrome.windows.remove(curWinId);
       } catch {}
-      activePostingWindowId = null;
-      activePostingTabId = null;
-    } else if (activePostingTabId) {
+      await setActivePostingWindowId(null);
+      await setActivePostingTabId(null);
+    } else if (curTabId) {
       try {
-        await chrome.tabs.remove(activePostingTabId);
+        await chrome.tabs.remove(curTabId);
       } catch {}
-      activePostingTabId = null;
+      await setActivePostingTabId(null);
     }
 
     const state = await getQueueState();
@@ -258,33 +304,34 @@ async function executeNextQueueItem(): Promise<void> {
 
   // 1. Check if our dedicated small automation window is still alive
   let isWindowAlive = false;
-  if (activePostingWindowId) {
+  const existingWinId = await getActivePostingWindowId();
+  if (existingWinId) {
     try {
-      const existingWin = await chrome.windows.get(activePostingWindowId, { populate: true });
+      const existingWin = await chrome.windows.get(existingWinId, { populate: true });
       if (existingWin && existingWin.id) {
         isWindowAlive = true;
       }
     } catch {
       isWindowAlive = false;
-      activePostingWindowId = null;
-      activePostingTabId = null;
+      await setActivePostingWindowId(null);
+      await setActivePostingTabId(null);
     }
   }
 
-  if (isWindowAlive && activePostingWindowId) {
+  const validWinId = await getActivePostingWindowId();
+  if (isWindowAlive && validWinId) {
     // Check if the tab inside our dedicated window is still alive
-    if (activePostingTabId) {
+    const existingTabId = await getActivePostingTabId();
+    if (existingTabId) {
       try {
-        const existingTab = await chrome.tabs.get(activePostingTabId);
-        if (existingTab && existingTab.windowId === activePostingWindowId) {
-          await chrome.tabs.update(activePostingTabId, { url: activeGroup.url, active: true });
-          tabId = activePostingTabId;
-          try {
-            await chrome.windows.update(activePostingWindowId, { focused: true });
-          } catch {}
-        }
+        await chrome.tabs.update(existingTabId, { url: activeGroup.url, active: true });
+        tabId = existingTabId;
+        chrome.tabs.sendMessage(existingTabId, { type: 'AGP_NAVIGATE_TO_GROUP', url: activeGroup.url }).catch(() => {});
+        try {
+          await chrome.windows.update(validWinId, { focused: true });
+        } catch {}
       } catch {
-        activePostingTabId = null;
+        await setActivePostingTabId(null);
       }
     }
 
@@ -292,12 +339,12 @@ async function executeNextQueueItem(): Promise<void> {
     if (!tabId) {
       try {
         const newTab = await chrome.tabs.create({
-          windowId: activePostingWindowId,
+          windowId: validWinId,
           url: activeGroup.url,
           active: true,
         });
         tabId = newTab.id;
-        activePostingTabId = newTab.id ?? null;
+        await setActivePostingTabId(newTab.id ?? null);
       } catch (tabErr) {
         console.warn('[AGP:Worker] Failed to create tab inside automation window:', tabErr);
       }
@@ -306,7 +353,8 @@ async function executeNextQueueItem(): Promise<void> {
 
   // 2. If dedicated window does not exist or failed to open tab, create a new dedicated small popup window!
   // NEVER use or hijack user's existing tabs in their normal browser window.
-  if (!tabId || !activePostingWindowId) {
+  const currentWinId = await getActivePostingWindowId();
+  if (!tabId || !currentWinId) {
     try {
       const win = await chrome.windows.create({
         url: activeGroup.url,
@@ -317,14 +365,14 @@ async function executeNextQueueItem(): Promise<void> {
         left: 60,
         focused: true,
       });
-      activePostingWindowId = win.id ?? null;
+      await setActivePostingWindowId(win.id ?? null);
       if (win.tabs && win.tabs.length > 0) {
         tabId = win.tabs[0].id;
       } else if (win.id) {
         const winTabs = await chrome.tabs.query({ windowId: win.id });
         tabId = winTabs[0]?.id;
       }
-      activePostingTabId = tabId ?? null;
+      await setActivePostingTabId(tabId ?? null);
     } catch (winErr) {
       console.error('[AGP:Worker] Failed to create dedicated automation popup window:', winErr);
     }
@@ -343,9 +391,9 @@ async function executeNextQueueItem(): Promise<void> {
     currentGroupMatch: true,
   });
 
-  await logger.info('queue', `Opening group: ${activeGroup.name} (${activeGroup.url})`);
-  await showNotification('Group Opened', `Review your prepared post for: ${activeGroup.name}`);
-  await dispatchWebhookEvent('POST_READY', { groupId: activeGroup.id, postId: post.id, groupName: activeGroup.name });
+  logger.info('queue', `Opening group: ${activeGroup.name} (${activeGroup.url})`).catch(() => {});
+  showNotification('Group Opened', `Review your prepared post for: ${activeGroup.name}`).catch(() => {});
+  dispatchWebhookEvent('POST_READY', { groupId: activeGroup.id, postId: post.id, groupName: activeGroup.name }).catch(() => {});
 }
 
 /**
@@ -456,11 +504,11 @@ async function executeGroupDiscovery(): Promise<DiscoveryProgress> {
         const t = await chrome.tabs.get(tabId);
         if (t.status === 'complete') break;
       } catch {}
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 200));
     }
 
     // 3. Wait for Facebook React DOM hydration
-    await new Promise(r => setTimeout(r, 2200));
+    await new Promise(r => setTimeout(r, 400));
 
     // 4. Ensure content script is ready
     let isScriptReady: boolean = await new Promise(resolve => {
@@ -475,7 +523,7 @@ async function executeGroupDiscovery(): Promise<DiscoveryProgress> {
           target: { tabId: tabId! },
           files: ['facebook-content.js'],
         });
-        await new Promise(r => setTimeout(r, 1000));
+        await new Promise(r => setTimeout(r, 200));
       } catch (e) {
         console.warn('[AGP:Worker] Script injection warning:', e);
       }
@@ -846,13 +894,14 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
             });
 
             // Ensure previous window is cleaned up so a fresh dedicated automation window opens
-            if (activePostingWindowId) {
+            const prevWin = await getActivePostingWindowId();
+            if (prevWin) {
               try {
-                await chrome.windows.remove(activePostingWindowId);
+                await chrome.windows.remove(prevWin);
               } catch {}
             }
-            activePostingWindowId = null;
-            activePostingTabId = null;
+            await setActivePostingWindowId(null);
+            await setActivePostingTabId(null);
 
             await createQueueItems(p.groupIds, p.postId, 'READY');
             const state = await getQueueState();
@@ -874,17 +923,19 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
         }
 
         case 'STOP_QUEUE': {
-          if (activePostingWindowId) {
+          const prevWin = await getActivePostingWindowId();
+          const prevTab = await getActivePostingTabId();
+          if (prevWin) {
             try {
-              await chrome.windows.remove(activePostingWindowId);
+              await chrome.windows.remove(prevWin);
             } catch {}
-            activePostingWindowId = null;
-            activePostingTabId = null;
-          } else if (activePostingTabId) {
+            await setActivePostingWindowId(null);
+            await setActivePostingTabId(null);
+          } else if (prevTab) {
             try {
-              await chrome.tabs.remove(activePostingTabId);
+              await chrome.tabs.remove(prevTab);
             } catch {}
-            activePostingTabId = null;
+            await setActivePostingTabId(null);
           }
 
           const state = await getQueueState();
@@ -912,13 +963,13 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
           }
 
           await recordItemPosted(currentId);
-          await showNotification('Post Completed', 'Group marked as posted.');
-          await dispatchWebhookEvent('POST_MARKED_POSTED', { itemId: currentId });
+          showNotification('Post Completed', 'Group marked as posted.').catch(() => {});
+          dispatchWebhookEvent('POST_MARKED_POSTED', { itemId: currentId }).catch(() => {});
 
           const settings = await getSettings();
           if (!state.isPaused) {
             await setQueueState({ ...state, isRunning: true });
-            if (settings.queue.delayBetweenItemsSec > 0 && settings.queue.delayBetweenItemsSec <= 5) {
+            if (settings.queue.delayBetweenItemsSec > 0) {
               await runPacingDelay(settings.queue.delayBetweenItemsSec);
             }
             await executeNextQueueItem();
@@ -979,11 +1030,14 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
           // STRICT TAB ISOLATION:
           // Check if sender tab is inside our dedicated posting automation window.
           // Never run queue automation / post injection on the user's personal Facebook tabs in their regular window!
+          const activeWinId = await getActivePostingWindowId();
+          const activeTId = await getActivePostingTabId();
+          const curQueueState = await getQueueState();
           const isAutomationTab = Boolean(
             sender.tab && (
-              sender.tab.id === activePostingTabId ||
-              (activePostingWindowId && sender.tab.windowId === activePostingWindowId) ||
-              sender.tab.id === (await getQueueState()).activeTabId
+              sender.tab.id === activeTId ||
+              (activeWinId && sender.tab.windowId === activeWinId) ||
+              sender.tab.id === curQueueState.activeTabId
             )
           );
 
@@ -1038,7 +1092,7 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
           // Robust Group Match Verification
           let isGroupMatch = true;
           if (group && senderUrl) {
-            const isOurTab = Boolean(sender.tab && (sender.tab.id === state.activeTabId || sender.tab.id === activePostingTabId));
+            const isOurTab = Boolean(sender.tab && (sender.tab.id === curQueueState.activeTabId || sender.tab.id === activeTId));
             if (isOurTab) {
               isGroupMatch = true;
             } else {
@@ -1090,15 +1144,17 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
 
         case 'FOCUS_POSTING_TAB':
         case 'FOCUS_ACTIVE_POSTING_TAB': {
-          if (activePostingWindowId) {
+          const focusWin = await getActivePostingWindowId();
+          const focusTab = await getActivePostingTabId();
+          if (focusWin) {
             try {
-              await chrome.windows.update(activePostingWindowId, { focused: true });
+              await chrome.windows.update(focusWin, { focused: true });
             } catch {}
           }
-          if (activePostingTabId) {
+          if (focusTab) {
             try {
-              await chrome.tabs.update(activePostingTabId, { active: true });
-              const tab = await chrome.tabs.get(activePostingTabId);
+              await chrome.tabs.update(focusTab, { active: true });
+              const tab = await chrome.tabs.get(focusTab);
               if (tab.windowId) {
                 await chrome.windows.update(tab.windowId, { focused: true });
               }
@@ -1245,6 +1301,11 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
           break;
         }
 
+        case 'KEEPALIVE_PING': {
+          sendResponse({ success: true, timestamp: Date.now() });
+          break;
+        }
+
         default:
           sendResponse({ success: false, error: 'Unknown message type' });
       }
@@ -1258,25 +1319,64 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
   return true; // Keep message channel open for async response
 });
 
-// Auto-pause queue if user manually closes the dedicated automation window
+// Clean up window references when an automation window closes - NEVER automatically pause the queue!
 chrome.windows.onRemoved.addListener(async (windowId) => {
-  if (windowId === activePostingWindowId) {
-    console.log('[AGP:Worker] Dedicated posting automation window closed by user.');
-    activePostingWindowId = null;
-    activePostingTabId = null;
+  const currentWinId = await getActivePostingWindowId();
+  if (windowId === currentWinId) {
+    console.log('[AGP:Worker] Dedicated posting automation window closed. Keeping queue active without auto-pausing.');
+    await setActivePostingWindowId(null);
+    await setActivePostingTabId(null);
+
+    // If queue is running and not paused by user, seamlessly continue with next item
     const state = await getQueueState();
     if (state.isRunning && !state.isPaused) {
-      await setQueueState({
-        ...state,
-        isRunning: false,
-        isPaused: true,
-        activeTabId: null,
-      });
-      await logger.info('queue', 'Automation window closed. Queue automatically paused.');
+      console.log('[AGP:Worker] Queue is running; continuing next queue item...');
+      await executeNextQueueItem();
     }
   } else if (windowId === activeDiscoveryWindowId) {
     console.log('[AGP:Worker] Dedicated discovery window closed.');
     activeDiscoveryWindowId = null;
+  }
+});
+
+// Monitor tab removal to cleanly reset tab reference without auto-pausing
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  const currentTabId = await getActivePostingTabId();
+  if (tabId === currentTabId) {
+    console.log('[AGP:Worker] Posting tab closed. Clearing tab reference without auto-pausing.');
+    await setActivePostingTabId(null);
+  }
+});
+
+// Keepalive & Self-Healing Watchdog Alarm (ensures queue runs continuously without sleeping/freezing)
+try {
+  chrome.alarms.create('AGP_QUEUE_WATCHDOG', { periodInMinutes: 0.25 });
+} catch (_) {}
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'AGP_QUEUE_WATCHDOG') {
+    try {
+      const state = await getQueueState();
+      // If queue is marked running and NOT paused by user
+      if (state.isRunning && !state.isPaused) {
+        const queue = await getQueue();
+        const nextItem = findNextExecutableItem(queue);
+        if (nextItem) {
+          const currentItem = state.currentItemId ? queue.find(q => q.id === state.currentItemId) : null;
+          // Auto-recover if an item has been stuck or stalled for > 45 seconds
+          if (currentItem && currentItem.startedAt && Date.now() - currentItem.startedAt > 45000) {
+            console.warn(`[AGP:Watchdog] Item ${currentItem.id} stalled for >45s. Auto-skipping to keep queue flowing...`);
+            await recordItemSkipped(currentItem.id, 'Watchdog auto-recovery: Response took too long');
+            await executeNextQueueItem();
+          } else if (!state.currentItemId) {
+            console.log('[AGP:Watchdog] Queue is active. Triggering next queue item...');
+            await executeNextQueueItem();
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[AGP:Watchdog] Watchdog check error:', err);
+    }
   }
 });
 

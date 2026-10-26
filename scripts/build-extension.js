@@ -3,14 +3,38 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, '..');
 const distDir = path.resolve(rootDir, 'dist');
 
+// Extract current git commit metadata
+let currentGitSha = '33b84ad5f000c0e7f880c3543f8e8b64650f67dc';
+let currentShortSha = '33b84ad';
+let currentCommitMsg = 'resilient bulk group import';
+let commitDate = new Date().toISOString();
+
+try {
+  currentGitSha = execSync('git rev-parse HEAD', { cwd: rootDir }).toString().trim();
+  currentShortSha = execSync('git rev-parse --short HEAD', { cwd: rootDir }).toString().trim();
+  currentCommitMsg = execSync('git log -1 --format=%s', { cwd: rootDir }).toString().trim();
+  commitDate = execSync('git log -1 --format=%cI', { cwd: rootDir }).toString().trim();
+} catch (e) {
+  console.warn('⚠️ Could not extract git commit info:', e.message);
+}
+
+const buildDefines = {
+  __APP_COMMIT_SHA__: JSON.stringify(currentGitSha),
+  __APP_SHORT_SHA__: JSON.stringify(currentShortSha),
+  __APP_COMMIT_MSG__: JSON.stringify(currentCommitMsg),
+  __APP_BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+};
+
 async function buildExtension() {
   console.log('🚀 Building AI Group Poster Chrome Extension...');
+  console.log(`📌 Git Commit: ${currentShortSha} (${currentGitSha})`);
 
   // Clean dist directory
   if (fs.existsSync(distDir)) {
@@ -23,6 +47,7 @@ async function buildExtension() {
   await build({
     root: rootDir,
     plugins: [react()],
+    define: buildDefines,
     resolve: {
       alias: {
         '@': path.resolve(rootDir, './src'),
@@ -46,6 +71,7 @@ async function buildExtension() {
   await build({
     configFile: false,
     root: rootDir,
+    define: buildDefines,
     resolve: {
       alias: {
         '@': path.resolve(rootDir, './src'),
@@ -63,11 +89,12 @@ async function buildExtension() {
     },
   });
 
-  // 3. Build Content Script (IIFE for isolated page injection)
+  // 3. Build Facebook Content Script (IIFE for isolated page injection)
   console.log('📦 Step 3: Building Facebook Content Script...');
   await build({
     configFile: false,
     root: rootDir,
+    define: buildDefines,
     resolve: {
       alias: {
         '@': path.resolve(rootDir, './src'),
@@ -90,6 +117,7 @@ async function buildExtension() {
   await build({
     configFile: false,
     root: rootDir,
+    define: buildDefines,
     resolve: {
       alias: {
         '@': path.resolve(rootDir, './src'),
@@ -107,8 +135,8 @@ async function buildExtension() {
     },
   });
 
-  // 4. Copy manifest.json & icons
-  console.log('📦 Step 4: Finalizing manifest and static assets...');
+  // 4. Copy manifest.json, icons, & write build-info.json
+  console.log('📦 Step 4: Finalizing manifest, build-info and static assets...');
   const manifestSrc = path.resolve(rootDir, 'public/manifest.json');
   const manifestDest = path.resolve(distDir, 'manifest.json');
   if (fs.existsSync(manifestSrc)) {
@@ -122,6 +150,19 @@ async function buildExtension() {
     fs.cpSync(iconsSrc, iconsDest, { recursive: true });
     console.log('✅ icons copied to dist/icons');
   }
+
+  // Write build metadata
+  const buildInfo = {
+    version: '1.0.1',
+    commitSha: currentGitSha,
+    shortSha: currentShortSha,
+    message: currentCommitMsg,
+    commitDate,
+    builtAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.resolve(distDir, 'build-info.json'), JSON.stringify(buildInfo, null, 2));
+  fs.writeFileSync(path.resolve(rootDir, 'public/build-info.json'), JSON.stringify(buildInfo, null, 2));
+  console.log(`✅ build-info.json written (commit: ${currentShortSha})`);
 
   console.log('✨ Build successfully completed! Load unpacked folder: dist/');
 }

@@ -388,7 +388,7 @@ export async function performProgressiveGroupScan(
 ): Promise<DiscoveryScanResult> {
   const maxRounds = options.maxRounds || 350;
   const stagnantLimit = options.stagnantLimit || 35;
-  const scrollDelayMs = options.scrollDelayMs !== undefined ? options.scrollDelayMs : 900;
+  const scrollDelayMs = options.scrollDelayMs !== undefined ? options.scrollDelayMs : 75;
   const accountContext = options.accountContext;
 
   const startTime = Date.now();

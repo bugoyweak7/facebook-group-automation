@@ -30,11 +30,28 @@ export interface UpdateStatus {
   message: string | null;
 }
 
+export interface CompanionStatusResponse {
+  ok: boolean;
+  server?: string;
+  branch?: string;
+  commit?: {
+    sha: string;
+    shortSha: string;
+    message: string;
+    author: string;
+    date: string;
+  };
+  hasUncommittedChanges?: boolean;
+}
+
 const GITHUB_REPO = 'mdnahid7653959-spec/facebook-group-automation';
 const GITHUB_BRANCH = 'main';
 const COMPANION_URL = 'http://127.0.0.1:3959';
 const STORAGE_KEY_COMMIT = 'fb_auto_current_commit_sha';
 const STORAGE_KEY_RELOADED_AT = 'fb_auto_last_reloaded_at';
+
+// Current repo commit as default fallback
+export const DEFAULT_FALLBACK_SHA = '33b84ad5f000c0e7f880c3543f8e8b64650f67dc';
 
 // Calculate relative time (e.g. "5m ago", "2h ago", "yesterday")
 export function formatRelativeTime(dateString: string): string {
@@ -58,16 +75,45 @@ export function formatRelativeTime(dateString: string): string {
 }
 
 /**
- * Get the currently recorded commit SHA from chrome storage or fallback
+ * Check if two commit SHAs match (supports full or 7-character short SHAs)
+ */
+export function isCommitUpToDate(currentSha: string, latestSha: string): boolean {
+  if (!currentSha || !latestSha) return true;
+  const a = currentSha.trim().toLowerCase();
+  const b = latestSha.trim().toLowerCase();
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
+
+/**
+ * Get compile-time or recorded commit SHA
  */
 export async function getCurrentCommitSha(): Promise<string> {
+  // 1. Try compile-time baked SHA if available
+  let bakedSha = '';
+  try {
+    if (typeof __APP_COMMIT_SHA__ !== 'undefined' && __APP_COMMIT_SHA__) {
+      bakedSha = __APP_COMMIT_SHA__;
+    }
+  } catch {
+    // ignore
+  }
+
   return new Promise((resolve) => {
     if (typeof chrome !== 'undefined' && chrome.storage?.local) {
       chrome.storage.local.get([STORAGE_KEY_COMMIT], (res) => {
-        resolve(res[STORAGE_KEY_COMMIT] || 'a5bb018');
+        const storedSha = res[STORAGE_KEY_COMMIT];
+        // If stored SHA is the old stale 'a5bb018', override with bakedSha or DEFAULT_FALLBACK_SHA
+        if (storedSha && storedSha !== 'a5bb018') {
+          resolve(storedSha);
+        } else {
+          const finalSha = bakedSha || DEFAULT_FALLBACK_SHA;
+          chrome.storage.local.set({ [STORAGE_KEY_COMMIT]: finalSha }, () => {
+            resolve(finalSha);
+          });
+        }
       });
     } else {
-      resolve('a5bb018');
+      resolve(bakedSha || DEFAULT_FALLBACK_SHA);
     }
   });
 }
@@ -171,7 +217,7 @@ export async function fetchLatestGithubCommit(): Promise<GithubCommitInfo | null
 export async function pingLocalCompanion(): Promise<boolean> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1200);
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
 
     const res = await fetch(`${COMPANION_URL}/status`, {
       method: 'GET',
@@ -185,12 +231,41 @@ export async function pingLocalCompanion(): Promise<boolean> {
 }
 
 /**
- * Request local companion server to git pull and build
+ * Get detailed status from companion server
  */
-export async function requestCompanionUpdate(): Promise<{ success: boolean; message: string; output?: string }> {
+export async function getCompanionStatus(): Promise<CompanionStatusResponse | null> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s max for pull + build
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+    const res = await fetch(`${COMPANION_URL}/status`, {
+      method: 'GET',
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (res.ok) {
+      return await res.json();
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Request local companion server to git pull and build
+ */
+export async function requestCompanionUpdate(): Promise<{
+  success: boolean;
+  message: string;
+  pullOutput?: string;
+  buildOutput?: string;
+  commit?: any;
+}> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000); // 90s max for pull + build
 
     const res = await fetch(`${COMPANION_URL}/update-from-github`, {
       method: 'POST',
@@ -200,14 +275,50 @@ export async function requestCompanionUpdate(): Promise<{ success: boolean; mess
 
     const json = await res.json();
     return {
-      success: json.success ?? json.ok ?? true,
-      message: json.message || 'Extension successfully updated from GitHub and rebuilt!',
-      output: json.output,
+      success: json.success ?? json.ok ?? res.ok,
+      message: json.message || (res.ok ? 'Updated successfully!' : 'Update encountered an error'),
+      pullOutput: json.pullOutput,
+      buildOutput: json.buildOutput,
+      commit: json.commit,
     };
   } catch (err: any) {
     return {
       success: false,
       message: `Local companion update error: ${err.message || 'Server did not respond'}`,
+    };
+  }
+}
+
+/**
+ * Request local companion server to re-build extension bundle
+ */
+export async function requestCompanionRebuild(): Promise<{
+  success: boolean;
+  message: string;
+  buildOutput?: string;
+  commit?: any;
+}> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+    const res = await fetch(`${COMPANION_URL}/rebuild`, {
+      method: 'POST',
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    const json = await res.json();
+    return {
+      success: json.success ?? json.ok ?? res.ok,
+      message: json.message || (res.ok ? 'Rebuilt successfully!' : 'Rebuild failed'),
+      buildOutput: json.buildOutput,
+      commit: json.commit,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `Rebuild error: ${err.message || 'Server did not respond'}`,
     };
   }
 }

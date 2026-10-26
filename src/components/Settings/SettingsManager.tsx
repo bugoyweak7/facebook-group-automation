@@ -431,6 +431,41 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
                     <label className="block text-slate-300 font-semibold mb-1">
                       Pacing Delay Between Groups (seconds)
                     </label>
+                    <div className="flex gap-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, queue: { ...formData.queue, delayBetweenItemsSec: 0 } })}
+                        className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                          formData.queue.delayBetweenItemsSec === 0
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        ⚡ 0s (Super Fast Turbo)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, queue: { ...formData.queue, delayBetweenItemsSec: 2 } })}
+                        className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                          formData.queue.delayBetweenItemsSec === 2
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        2s
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, queue: { ...formData.queue, delayBetweenItemsSec: 5 } })}
+                        className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                          formData.queue.delayBetweenItemsSec === 5
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-900 border border-slate-700 text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        5s
+                      </button>
+                    </div>
                     <input
                       type="number"
                       min="0"
@@ -445,7 +480,7 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
                       className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2 text-white focus:outline-none focus:border-indigo-500"
                     />
                     <p className="text-[11px] text-slate-500 mt-1">
-                      Recommended: 15–45s for natural browsing cadence.
+                      Set to 0s for maximum speed (⚡ Super Fast Instant posting).
                     </p>
                   </div>
 

@@ -47,6 +47,67 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
     } catch (_) {}
   }
 
+  // 2b. High-performance Main World GraphQL Interceptor for instantaneous group sync
+  try {
+    const origFetch = window.fetch;
+    window.fetch = async function (...args: any[]) {
+      const resp = await origFetch.apply(this, args as any);
+      try {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+        if (url.includes('/api/graphql') || url.includes('graphql')) {
+          const clone = resp.clone();
+          clone.text().then(text => {
+            if (text.includes('Group') && (text.includes('/groups/') || text.includes('__typename":"Group"'))) {
+              const groups: Array<{ name: string; id: string }> = [];
+              const regex = /"__typename"\s*:\s*"Group"[^}]*?"id"\s*:\s*"(\d+)"[^}]*?"name"\s*:\s*"([^"]+)"/g;
+              let m: RegExpExecArray | null;
+              while ((m = regex.exec(text)) !== null) {
+                if (m[1] && m[2] && m[2].trim().length >= 2) {
+                  groups.push({ id: m[1], name: m[2].trim() });
+                }
+              }
+              const nodeRegex = /"node"\s*:\s*\{\s*"__typename"\s*:\s*"Group"\s*,\s*"id"\s*:\s*"(\d+)"\s*,\s*"name"\s*:\s*"([^"]+)"/g;
+              while ((m = nodeRegex.exec(text)) !== null) {
+                if (m[1] && m[2] && m[2].trim().length >= 2) {
+                  groups.push({ id: m[1], name: m[2].trim() });
+                }
+              }
+              if (groups.length > 0) {
+                window.postMessage({
+                  type: 'AGP_MAIN_GRAPHQL_GROUPS',
+                  groups,
+                }, '*');
+              }
+            }
+          }).catch(() => {});
+        }
+      } catch (_) {}
+      return resp;
+    };
+  } catch (_) {}
+
+  // 2c. Instant 0ms SPA URL change interceptor
+  try {
+    const notifyUrlChange = () => {
+      window.postMessage({
+        type: 'AGP_MAIN_URL_CHANGED',
+        url: window.location.href,
+      }, '*');
+    };
+    const origPushState = history.pushState;
+    history.pushState = function (...args: any[]) {
+      const ret = origPushState.apply(this, args as any);
+      notifyUrlChange();
+      return ret;
+    };
+    const origReplaceState = history.replaceState;
+    history.replaceState = function (...args: any[]) {
+      const ret = origReplaceState.apply(this, args as any);
+      notifyUrlChange();
+      return ret;
+    };
+  } catch (_) {}
+
   // 3. High-Fidelity Main World Caption Injector for Facebook's Lexical Editor
   // Runs in MAIN world with direct DOM and React privileges to preserve exact caption formatting:
   // - Preserves all newlines, blank lines, indentation, emojis, and Bengali/English text
@@ -155,81 +216,60 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
 
         let injected = false;
 
-        // Method 1A: Write rich HTML + text to native clipboard and trigger native paste
+        // Method 1: Synthetic Paste with DataTransfer in MAIN world (ultra-fast)
         try {
-          if (navigator.clipboard && (window as any).ClipboardItem) {
-            const textBlob = new Blob([caption], { type: 'text/plain' });
-            const htmlBlob = new Blob([htmlParagraphs], { type: 'text/html' });
-            await navigator.clipboard.write([
-              new (window as any).ClipboardItem({
-                'text/plain': textBlob,
-                'text/html': htmlBlob,
-              }),
-            ]);
-            const pasteOk = document.execCommand('paste');
-            if (pasteOk) {
-              await new Promise(function (r) { setTimeout(r, 60); });
-              const checkText = (editor.textContent || '').trim();
-              if (checkText.length >= caption.trim().length * 0.4) {
-                injected = true;
-              }
-            }
+          const dt = new DataTransfer();
+          dt.setData('text/plain', caption);
+          dt.setData('text/html', htmlParagraphs);
+
+          const pasteEvent = new ClipboardEvent('paste', {
+            bubbles: true,
+            cancelable: true,
+            clipboardData: dt,
+          });
+          editor.dispatchEvent(pasteEvent);
+
+          // Direct Lexical instance integration in MAIN world
+          const lexicalEditor = (editor as any).__lexicalEditor;
+          if (lexicalEditor && typeof lexicalEditor.dispatchCommand === 'function') {
+            try {
+              lexicalEditor.dispatchCommand(16, pasteEvent);
+            } catch (_) {}
           }
-        } catch (_) {}
 
-        // Method 1B: Synthetic Paste with DataTransfer in MAIN world
-        if (!injected) {
-          try {
-            const dt = new DataTransfer();
-            dt.setData('text/plain', caption);
-            dt.setData('text/html', htmlParagraphs);
+          let textAfter = (editor.textContent || '').trim();
+          if (!textAfter || textAfter.length < 5) {
+            await new Promise(function (r) { setTimeout(r, 5); });
+            textAfter = (editor.textContent || '').trim();
+          }
 
-            const pasteEvent = new ClipboardEvent('paste', {
+          // Fallback 1: beforeinput with insertFromPaste
+          if (!textAfter || textAfter.length < 5) {
+            editor.dispatchEvent(new InputEvent('beforeinput', {
               bubbles: true,
               cancelable: true,
-              clipboardData: dt,
-            });
-            editor.dispatchEvent(pasteEvent);
+              inputType: 'insertFromPaste',
+              dataTransfer: dt,
+            }));
+            await new Promise(function (r) { setTimeout(r, 5); });
+            textAfter = (editor.textContent || '').trim();
+          }
 
-            // Direct Lexical instance integration in MAIN world
-            const lexicalEditor = (editor as any).__lexicalEditor;
-            if (lexicalEditor && typeof lexicalEditor.dispatchCommand === 'function') {
-              try {
-                lexicalEditor.dispatchCommand(16, pasteEvent);
-              } catch (_) {}
-            }
-
-            await new Promise(function (r) { setTimeout(r, 80); });
-            let textAfter = (editor.textContent || '').trim();
-
-            // Fallback 1: beforeinput with insertFromPaste
-            if (!textAfter || textAfter.length < 5) {
-              editor.dispatchEvent(new InputEvent('beforeinput', {
-                bubbles: true,
-                cancelable: true,
-                inputType: 'insertFromPaste',
-                dataTransfer: dt,
-              }));
-              await new Promise(function (r) { setTimeout(r, 60); });
+          // Fallback 2: document.execCommand insertHTML
+          if (!textAfter || textAfter.length < 5) {
+            try {
+              document.execCommand('insertHTML', false, htmlParagraphs);
+              await new Promise(function (r) { setTimeout(r, 5); });
               textAfter = (editor.textContent || '').trim();
-            }
+            } catch (_) {}
+          }
 
-            // Fallback 2: document.execCommand insertHTML
-            if (!textAfter || textAfter.length < 5) {
-              try {
-                document.execCommand('insertHTML', false, htmlParagraphs);
-                await new Promise(function (r) { setTimeout(r, 60); });
-                textAfter = (editor.textContent || '').trim();
-              } catch (_) {}
-            }
-
-            const blockElements = editor.querySelectorAll('p, h1, h2, h3, ul, ol, li, blockquote');
-            const hasRichBlocks = editor.querySelectorAll('h1, h2, ul, ol, blockquote').length > 0;
-            if (textAfter.length > 0 && (!caption.includes('\n') || blockElements.length > 1 || hasRichBlocks || textAfter.length >= caption.trim().length * 0.4)) {
-              injected = true;
-            }
-          } catch (_) {}
-        }
+          const blockElements = editor.querySelectorAll('p, h1, h2, h3, ul, ol, li, blockquote');
+          const hasRichBlocks = editor.querySelectorAll('h1, h2, ul, ol, blockquote').length > 0;
+          if (textAfter.length > 0 && (!caption.includes('\n') || blockElements.length > 1 || hasRichBlocks || textAfter.length >= caption.trim().length * 0.4)) {
+            injected = true;
+          }
+        } catch (_) {}
 
         // Method 2: Keystroke simulation with non-collapsing empty lines
         if (!injected) {
@@ -287,8 +327,11 @@ import { convertToRichHtml, deduplicateRepeatedCaption } from '../utils/text-sty
         editor.dispatchEvent(new Event('change', { bubbles: true }));
         document.dispatchEvent(new Event('selectionchange'));
 
-        await new Promise(function (r) { setTimeout(r, 50); });
-        const finalText = (editor.textContent || '').trim();
+        let finalText = (editor.textContent || '').trim();
+        if (!finalText) {
+          await new Promise(function (r) { setTimeout(r, 5); });
+          finalText = (editor.textContent || '').trim();
+        }
 
         window.postMessage({
           type: 'AGP_MAIN_INJECT_CAPTION_RESPONSE',
