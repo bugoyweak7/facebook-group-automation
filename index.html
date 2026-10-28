@@ -1,0 +1,355 @@
+<!DOCTYPE html><html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#101828">
+<title>GroupPilot Personal</title>
+<style>
+:root{--bg:#f4f7fb;--panel:#fff;--text:#172033;--muted:#718096;--line:#e4e9f1;--blue:#4361ee;--nav:#101828;--green:#16845b;--red:#c24141}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer}
+.app{min-height:100vh;display:grid;grid-template-columns:240px 1fr}
+.sidebar{background:var(--nav);color:#fff;padding:24px 15px;display:flex;flex-direction:column;gap:22px}
+.brand{font-size:22px;font-weight:800;padding:0 12px;letter-spacing:-.7px}
+.brand span{color:#91a5ff}
+.tag{font-size:11px;color:#aeb9cc;padding:0 12px;margin-top:-18px}
+.nav{display:grid;gap:7px}
+.nav button{border:0;background:transparent;color:#c5cede;text-align:left;padding:13px 14px;border-radius:10px;font-size:14px}
+.nav button.active,.nav button:hover{background:#27344b;color:white}
+.side-bottom{margin-top:auto;color:#9daac0;font-size:12px;padding:12px}
+main{min-width:0;padding:30px;max-width:1500px;width:100%;margin:0 auto}
+.topbar{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-bottom:26px}
+h1{font-size:27px;margin:0 0 5px;letter-spacing:-.6px}
+.subtitle{font-size:14px;color:var(--muted)}
+.badge{display:inline-flex;align-items:center;gap:7px;border-radius:20px;padding:8px 12px;background:#e4f6ec;color:#13744d;font-size:12px;font-weight:700}
+.badge:before{content:"";width:7px;height:7px;background:#19a66e;border-radius:50%}
+.grid{display:grid;gap:18px}
+.stats{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:22px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:20px;min-width:0;box-shadow:0 2px 8px #18294a05}
+.stat-label{font-size:13px;color:var(--muted)}
+.stat-value{font-size:30px;font-weight:800;margin:9px 0 2px}
+.stat-note{font-size:12px;color:var(--muted)}
+.two{grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr)}
+.section-title{font-size:17px;font-weight:750;margin:0 0 16px}
+.actions{display:flex;flex-wrap:wrap;gap:9px}
+.btn{border:1px solid var(--line);background:white;color:var(--text);padding:10px 14px;border-radius:9px;font-weight:650;font-size:13px}
+.btn.primary{background:var(--blue);color:white;border-color:var(--blue)}
+.btn.dark{background:var(--nav);color:white;border-color:var(--nav)}
+.btn.danger{color:var(--red)}
+.btn.small{padding:7px 10px;font-size:12px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.field{display:grid;gap:7px;margin-bottom:15px}
+label{font-size:13px;font-weight:650}
+input,textarea,select{width:100%;border:1px solid #dbe2ec;border-radius:9px;padding:11px 12px;background:white;color:var(--text);outline:none}
+input:focus,textarea:focus,select:focus{border-color:var(--blue);box-shadow:0 0 0 3px #4361ee15}
+textarea{resize:vertical;min-height:145px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.muted{color:var(--muted);font-size:13px}
+.list{display:grid;gap:10px}
+.item{border:1px solid var(--line);border-radius:11px;padding:13px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.item-main{min-width:0}
+.item-name{font-weight:700;font-size:14px;overflow-wrap:anywhere}
+.item-detail{font-size:12px;color:var(--muted);margin-top:4px;overflow-wrap:anywhere}
+.pill{font-size:11px;font-weight:700;background:#eef2ff;color:#4355bb;padding:5px 8px;border-radius:20px;white-space:nowrap}
+.pill.done{background:#e3f7ed;color:#13744d}
+.pill.pending{background:#fff3d7;color:#8a5a00}
+.empty{padding:24px 10px;text-align:center;color:var(--muted);font-size:13px}
+.page{display:none}
+.page.active{display:block}
+.notice{background:#eef4ff;border:1px solid #d9e5ff;color:#354a85;padding:13px 15px;border-radius:10px;font-size:13px;line-height:1.6;margin-bottom:18px}
+.toast{position:fixed;bottom:20px;right:20px;background:#101828;color:white;padding:13px 18px;border-radius:10px;box-shadow:0 8px 30px #0002;display:none;z-index:20;font-size:14px;max-width:90vw}
+.footer{font-size:12px;color:var(--muted);padding:25px 2px}
+.mobile-head{display:none}
+@media(max-width:950px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.two{grid-template-columns:1fr}}
+@media(max-width:650px){
+.app{display:block;padding-bottom:76px}
+.sidebar{display:none}
+main{padding:19px 14px}
+h1{font-size:23px}
+.topbar{align-items:flex-start}
+.badge{font-size:10px;padding:7px 9px}
+.mobile-head{display:flex;align-items:center;justify-content:space-between;background:var(--nav);color:white;padding:14px 16px}
+.mobile-brand{font-weight:800;font-size:19px}
+.mobile-brand span{color:#91a5ff}
+.mobile-nav{position:fixed;bottom:0;left:0;right:0;background:#101828;display:flex;overflow-x:auto;z-index:10;padding:7px 3px calc(7px + env(safe-area-inset-bottom));gap:1px}
+.mobile-nav button{flex:1;min-width:63px;border:0;background:transparent;color:#c5cede;padding:8px 4px;font-size:10px;border-radius:8px}
+.mobile-nav button.active{background:#27344b;color:white}
+.mobile-nav .icon{display:block;font-size:19px;margin-bottom:3px}
+.stats{gap:10px}
+.card{padding:16px}
+.stat-value{font-size:26px}
+.row{grid-template-columns:1fr;gap:0}
+.item{align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<div class="mobile-head"><div class="mobile-brand">Group<span>Pilot</span></div><span style="font-size:11px;color:#b7c2d5">PERSONAL</span></div>
+<div class="app">
+<aside class="sidebar">
+<div class="brand">Group<span>Pilot</span></div>
+<div class="tag">PERSONAL WORKSPACE</div>
+<nav class="nav" id="sideNav">
+<button class="active" data-page="dashboard">▦ &nbsp; Dashboard</button>
+<button data-page="groups">▣ &nbsp; My Groups</button>
+<button data-page="composer">✎ &nbsp; Post Composer</button>
+<button data-page="queue">◷ &nbsp; Posting Queue</button>
+<button data-page="templates">▤ &nbsp; Caption Templates</button>
+<button data-page="history">◴ &nbsp; Post History</button>
+<button data-page="backup">⚙ &nbsp; Backup & Settings</button>
+</nav>
+<div class="side-bottom">Personal edition<br>Data stored in this browser</div>
+</aside>
+<main>
+<header class="topbar">
+<div><h1 id="pageTitle">Dashboard</h1><div class="subtitle" id="pageSubtitle">Your personal Facebook group posting workspace.</div></div>
+<div class="badge">LOCAL STORAGE</div>
+</header><section class="page active" id="dashboard">
+<div class="notice"><strong>Welcome to GroupPilot Personal.</strong> Organize your groups, prepare captions, and manage your posting schedule. You remain in control of every Facebook post.</div>
+<div class="grid stats">
+<div class="card"><div class="stat-label">Saved Groups</div><div class="stat-value" id="statGroups">0</div><div class="stat-note">Your group list</div></div>
+<div class="card"><div class="stat-label">Queued Posts</div><div class="stat-value" id="statQueue">0</div><div class="stat-note">Waiting to be posted</div></div>
+<div class="card"><div class="stat-label">Templates</div><div class="stat-value" id="statTemplates">0</div><div class="stat-note">Reusable captions</div></div>
+<div class="card"><div class="stat-label">Posted Records</div><div class="stat-value" id="statHistory">0</div><div class="stat-note">Your posting history</div></div>
+</div>
+<div class="grid two">
+<div class="card"><h2 class="section-title">Quick Actions</h2><div class="actions">
+<button class="btn primary" data-go="composer">＋ Write a Post</button>
+<button class="btn" data-go="groups">＋ Add a Group</button>
+<button class="btn" data-go="templates">Caption Templates</button>
+</div><p class="muted" style="margin-top:18px;line-height:1.7">Create your post, select a group, and add it to your queue. When you're ready, open Facebook yourself and publish manually.</p></div>
+<div class="card"><h2 class="section-title">Next in Queue</h2><div class="list" id="dashboardQueue"></div></div>
+<div class="card"><h2 class="section-title">Recently Recorded</h2><div class="list" id="dashboardHistory"></div></div>
+<div class="card"><h2 class="section-title">Getting Started</h2><div class="muted" style="line-height:1.9">1. Save the Facebook group links you manage.<br>2. Prepare captions in Post Composer.<br>3. Add posts to your queue.<br>4. Open Facebook and post manually.<br>5. Record completed posts in History.<br><br>Your saved information stays in this browser until you clear it or reset the app. Export a backup regularly.</div></div>
+</div>
+</section><section class="page" id="groups">
+<div class="grid two">
+<div class="card"><h2 class="section-title">Add a Facebook Group</h2>
+<form id="groupForm">
+<div class="field"><label for="groupName">Group name *</label><input id="groupName" required maxlength="120" placeholder="e.g. My Marketplace Group"></div>
+<div class="field"><label for="groupUrl">Facebook group URL</label><input id="groupUrl" type="url" placeholder="https://www.facebook.com/groups/..."></div>
+<div class="field"><label for="groupNotes">Notes (optional)</label><textarea id="groupNotes" style="min-height:85px" placeholder="Posting rules, topic, or reminders"></textarea></div>
+<button class="btn primary" type="submit">Save Group</button>
+</form></div>
+<div class="card"><h2 class="section-title">Your Groups</h2><div class="list" id="groupsList"></div></div>
+</div>
+</section><section class="page" id="composer">
+<div class="grid two">
+<div class="card"><h2 class="section-title">Create a Post</h2>
+<form id="postForm">
+<div class="field"><label for="postGroup">Target group</label><select id="postGroup"><option value="">No group selected</option></select></div>
+<div class="field"><label for="postTitle">Internal title</label><input id="postTitle" maxlength="150" placeholder="e.g. Weekend promotion"></div>
+<div class="field"><label for="postText">Caption / post content *</label><textarea id="postText" required maxlength="20000" placeholder="Write your Facebook post here..."></textarea></div>
+<div class="row"><div class="field"><label for="postDate">Schedule date</label><input type="date" id="postDate"></div><div class="field"><label for="postTime">Schedule time</label><input type="time" id="postTime"></div></div>
+<div class="actions"><button class="btn primary" type="submit">Add to Queue</button><button class="btn" type="button" id="saveDraft">Save Draft</button><button class="btn" type="button" id="copyPost">Copy Caption</button></div>
+</form></div>
+<div class="card"><h2 class="section-title">Caption Helpers</h2>
+<div class="field"><label for="tone">Caption style</label><select id="tone"><option value="friendly">Friendly</option><option value="professional">Professional</option><option value="promotional">Promotional</option><option value="short">Short and direct</option></select></div>
+<div class="field"><label for="topic">Topic or product</label><input id="topic" placeholder="What is your post about?"></div>
+<div class="field"><label for="details">Key details</label><textarea id="details" style="min-height:95px" placeholder="Benefits, price, offer, call to action..."></textarea></div>
+<button class="btn" id="makeCaption" type="button">Create Caption Draft</button>
+<p class="muted" style="line-height:1.7;margin-top:14px">This helper creates a local draft using your details. It does not connect to an AI service or publish anything.</p>
+<hr style="border:0;border-top:1px solid var(--line);margin:20px 0">
+<h3 style="font-size:14px">Use a saved template</h3>
+<div class="field"><select id="templateSelect"><option value="">Choose template</option></select></div>
+<button class="btn" id="useTemplate" type="button">Insert Template</button>
+</div>
+</div>
+</section><section class="page" id="queue">
+<div class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><h2 class="section-title">Posting Queue</h2><button class="btn primary" data-go="composer">＋ New Post</button></div><p class="muted">Scheduled items are reminders only. GroupPilot does not automatically post to Facebook.</p><div class="list" id="queueList"></div></div>
+</section><section class="page" id="templates">
+<div class="grid two">
+<div class="card"><h2 class="section-title">Create Caption Template</h2><form id="templateForm">
+<div class="field"><label for="templateName">Template name *</label><input id="templateName" required maxlength="100" placeholder="e.g. Product promotion"></div>
+<div class="field"><label for="templateContent">Template content *</label><textarea id="templateContent" required placeholder="Write a reusable caption..."></textarea></div>
+<button class="btn primary" type="submit">Save Template</button>
+</form></div>
+<div class="card"><h2 class="section-title">Saved Templates</h2><div class="list" id="templatesList"></div></div>
+</div>
+</section><section class="page" id="history">
+<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 class="section-title">Post History</h2><button class="btn" data-go="queue">View Queue</button></div><p class="muted">Record posts after you publish them manually on Facebook.</p><div class="list" id="historyList"></div></div>
+</section><section class="page" id="backup">
+<div class="grid two">
+<div class="card"><h2 class="section-title">Backup Your Data</h2><p class="muted" style="line-height:1.7">Export your groups, queue, templates, history, and drafts as a JSON file. Keep a copy somewhere safe.</p><div class="actions"><button class="btn primary" id="exportData">Export Backup</button><button class="btn" id="importButton">Import Backup</button><input type="file" id="importFile" accept=".json,application/json" hidden></div></div>
+<div class="card"><h2 class="section-title">Storage Information</h2><div class="item"><div class="item-main"><div class="item-name">Storage location</div><div class="item-detail">This browser's local storage</div></div><span class="pill">LOCAL</span></div><div class="item"><div class="item-main"><div class="item-name">Cloud sync</div><div class="item-detail">Not configured</div></div><span class="pill pending">OFF</span></div><div class="item"><div class="item-main"><div class="item-name">Automatic Facebook posting</div><div class="item-detail">Not enabled</div></div><span class="pill">MANUAL</span></div></div>
+<div class="card"><h2 class="section-title">Privacy</h2><p class="muted" style="line-height:1.8">Your app data is saved locally in this browser. It is not automatically shared with a server by this page. If you use a different browser or clear browser storage, your data may not be available. Export backups regularly.</p></div>
+<div class="card"><h2 class="section-title">Danger Zone</h2><p class="muted">Permanently clear all GroupPilot data stored in this browser. Export a backup first if you want to keep your information.</p><button class="btn danger" id="clearData">Clear All Local Data</button></div>
+</div>
+</section><div class="footer">GroupPilot Personal · Personal workspace · Manual Facebook publishing</div>
+</main>
+</div><nav class="mobile-nav" id="mobileNav">
+<button class="active" data-page="dashboard"><span class="icon">▦</span>Home</button>
+<button data-page="groups"><span class="icon">▣</span>Groups</button>
+<button data-page="composer"><span class="icon">✎</span>Compose</button>
+<button data-page="queue"><span class="icon">◷</span>Queue</button>
+<button data-page="history"><span class="icon">◴</span>History</button>
+<button data-page="backup"><span class="icon">⚙</span>Settings</button>
+</nav>
+<div class="toast" id="toast"></div><script>
+(function(){
+"use strict";
+const KEY="grouppilot_personal_v1";
+const initial={groups:[],queue:[],templates:[],history:[],drafts:[]};
+let data=loadData();
+const $=id=>document.getElementById(id);
+function loadData(){
+try{const saved=JSON.parse(localStorage.getItem(KEY)||"null");if(saved&&typeof saved==="object")return {...initial,...saved}}catch(e){}
+return {...initial};
+}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(data));render();return true}catch(e){notify("Storage is full. Export a backup or remove some data.");return false}}
+function id(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+function notify(message){const t=$("toast");t.textContent=message;t.style.display="block";clearTimeout(notify.timer);notify.timer=setTimeout(()=>t.style.display="none",2800)}
+const pages={
+dashboard:["Dashboard","Your personal Facebook group posting workspace."],
+groups:["My Groups","Keep the Facebook groups you manage organized."],
+composer:["Post Composer","Prepare captions and add them to your queue."],
+queue:["Posting Queue","Organize the posts you plan to publish manually."],
+templates:["Caption Templates","Save reusable captions for faster writing."],
+history:["Post History","Record posts you have published yourself."],
+backup:["Backup & Settings","Manage your local data and backups."]
+};
+function go(page){
+if(!pages[page])return;
+document.querySelectorAll(".page").forEach(el=>el.classList.toggle("active",el.id===page));
+document.querySelectorAll("[data-page]").forEach(el=>el.classList.toggle("active",el.dataset.page===page));
+$("pageTitle").textContent=pages[page][0];$("pageSubtitle").textContent=pages[page][1];
+window.scrollTo({top:0,behavior:"smooth"});render();
+}
+document.addEventListener("click",e=>{
+const p=e.target.closest("[data-page]");if(p)go(p.dataset.page);
+const g=e.target.closest("[data-go]");if(g)go(g.dataset.go);
+});
+function groupName(gid){return data.groups.find(g=>g.id===gid)?.name||"No group selected"}
+function empty(msg){return '<div class="empty">'+esc(msg)+'</div>'}
+function renderGroups(){
+$("groupsList").innerHTML=data.groups.length?data.groups.map(g=>`<div class="item"><div class="item-main"><div class="item-name">${esc(g.name)}</div><div class="item-detail">${g.url?`<a href="${esc(g.url)}" target="_blank" rel="noopener noreferrer">Open group ↗</a>`:"No group URL"}${g.notes?" · "+esc(g.notes):""}</div></div><button class="btn small danger" data-delete-group="${g.id}">Delete</button></div>`).join(""):empty("No groups saved yet.");
+const select=$("postGroup");const old=select.value;
+select.innerHTML='<option value="">No group selected</option>'+data.groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join("");
+if(data.groups.some(g=>g.id===old))select.value=old;
+}
+function queueItem(p,showActions){
+const date=p.date?`${p.date}${p.time?" · "+p.time:""}`:"Not scheduled";
+return `<div class="item"><div class="item-main"><div class="item-name">${esc(p.title||p.text.slice(0,65)||"Untitled post")}</div><div class="item-detail">${esc(groupName(p.groupId))} · ${esc(date)}</div><div class="item-detail">${esc(p.text.slice(0,120))}</div></div><div style="display:grid;gap:6px;justify-items:end"><span class="pill ${p.status==="done"?"done":""}">${esc(p.status==="done"?"Recorded":p.status==="draft"?"Draft":"Queued")}</span>${showActions?`<button class="btn small" data-copy="${p.id}">Copy</button><button class="btn small" data-done="${p.id}">Mark Posted</button><button class="btn small danger" data-delete-post="${p.id}">Delete</button>`:""}</div></div>`;
+}
+function renderQueue(){
+const q=data.queue.slice().sort((a,b)=>((a.date||"9999")+(a.time||"")) .localeCompare((b.date||"9999")+(b.time||"")));
+$("queueList").innerHTML=q.length?q.map(p=>queueItem(p,true)).join(""):empty("Your queue is empty. Create a post to get started.");
+$("dashboardQueue").innerHTML=q.length?q.slice(0,3).map(p=>queueItem(p,false)).join(""):empty("Nothing queued yet.");
+}
+function renderTemplates(){
+$("templatesList").innerHTML=data.templates.length?data.templates.map(t=>`<div class="item"><div class="item-main"><div class="item-name">${esc(t.name)}</div><div class="item-detail">${esc(t.content.slice(0,130))}</div></div><div style="display:grid;gap:6px"><button class="btn small" data-use-template="${t.id}">Use</button><button class="btn small danger" data-delete-template="${t.id}">Delete</button></div></div>`).join(""):empty("No templates saved yet.");
+const sel=$("templateSelect");const old=sel.value;sel.innerHTML='<option value="">Choose template</option>'+data.templates.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join("");if(data.templates.some(t=>t.id===old))sel.value=old;
+}
+function renderHistory(){
+$("historyList").innerHTML=data.history.length?data.history.slice().reverse().map(h=>`<div class="item"><div class="item-main"><div class="item-name">${esc(h.title||h.text.slice(0,65)||"Post")}</div><div class="item-detail">${esc(groupName(h.groupId))} · Recorded ${esc(h.completedAt||"")}</div><div class="item-detail">${esc(h.text.slice(0,130))}</div></div><button class="btn small" data-copy-history="${h.id}">Copy</button></div>`).join(""):empty("No posts recorded yet.");
+$("dashboardHistory").innerHTML=data.history.length?data.history.slice(-3).reverse().map(h=>`<div class="item"><div class="item-main"><div class="item-name">${esc(h.title||h.text.slice(0,50))}</div><div class="item-detail">${esc(h.completedAt||"")}</div></div><span class="pill done">Recorded</span></div>`).join(""):empty("Your completed posts will appear here.");
+}
+function render(){
+$("statGroups").textContent=data.groups.length;
+$("statQueue").textContent=data.queue.filter(p=>p.status!=="done"&&p.status!=="draft").length;
+$("statTemplates").textContent=data.templates.length;
+$("statHistory").textContent=data.history.length;
+renderGroups();renderQueue();renderTemplates();renderHistory();
+}
+$("groupForm").addEventListener("submit",e=>{
+e.preventDefault();const name=$("groupName").value.trim();if(!name)return;
+const url=$("groupUrl").value.trim();
+if(url&&!/^https?:\/\//i.test(url)){notify("Enter a valid URL beginning with https://");return}
+data.groups.push({id:id(),name,url,notes:$("groupNotes").value.trim(),createdAt:new Date().toISOString()});
+if(save()){e.target.reset();notify("Group saved.");}
+});
+$("postForm").addEventListener("submit",e=>{
+e.preventDefault();const text=$("postText").value.trim();if(!text){notify("Write a caption first.");return}
+data.queue.push({id:id(),groupId:$("postGroup").value,title:$("postTitle").value.trim(),text,date:$("postDate").value,time:$("postTime").value,status:"queued",createdAt:new Date().toISOString()});
+if(save()){e.target.reset();notify("Post added to queue.");go("queue");}
+});
+$("saveDraft").addEventListener("click",()=>{
+const text=$("postText").value.trim();if(!text){notify("Write something to save as a draft.");return}
+data.queue.push({id:id(),groupId:$("postGroup").value,title:$("postTitle").value.trim(),text,date:$("postDate").value,time:$("postTime").value,status:"draft",createdAt:new Date().toISOString()});
+if(save())notify("Draft saved.");
+});
+$("copyPost").addEventListener("click",()=>copyText($("postText").value));
+async function copyText(text){
+if(!text){notify("There is no caption to copy.");return}
+try{await navigator.clipboard.writeText(text);notify("Caption copied.")}catch(e){
+const ta=document.createElement("textarea");ta.value=text;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();
+try{document.execCommand("copy");notify("Caption copied.")}catch(err){notify("Copy failed. Select and copy the text manually.")}
+ta.remove();
+}}
+$("makeCaption").addEventListener("click",()=>{
+const topic=$("topic").value.trim();const details=$("details").value.trim();const tone=$("tone").value;
+if(!topic&&!details){notify("Enter a topic or key details first.");return}
+let text="";
+if(tone==="professional")text=`Hello! We would like to share information about ${topic||"our latest update"}.\n\n${details}\n\nPlease message us if you would like to know more.`;
+else if(tone==="promotional")text=`✨ ${topic||"Check this out!"} ✨\n\n${details}\n\nInterested? Send us a message today!`;
+else if(tone==="short")text=`${topic||"Update"}\n\n${details}\n\nMessage us for more information.`;
+else text=`Hi everyone! 👋\n\nSharing ${topic||"this update"} with you.\n\n${details}\n\nFeel free to message me if you have any questions!`;
+$("postText").value=text.trim();notify("Caption draft created. Review it before posting.");
+});
+$("useTemplate").addEventListener("click",()=>{
+const t=data.templates.find(x=>x.id===$("templateSelect").value);
+if(!t){notify("Choose a template first.");return}
+$("postText").value=t.content;notify("Template inserted into the composer.");
+});
+$("templateForm").addEventListener("submit",e=>{
+e.preventDefault();data.templates.push({id:id(),name:$("templateName").value.trim(),content:$("templateContent").value.trim()});
+if(save()){e.target.reset();notify("Template saved.")}
+});
+document.addEventListener("click",async e=>{
+const b=e.target.closest("button");if(!b)return;
+if(b.dataset.deleteGroup){
+if(!confirm("Delete this group? Existing posts will remain."))return;
+data.groups=data.groups.filter(g=>g.id!==b.dataset.deleteGroup);save();notify("Group deleted.");
+}
+if(b.dataset.deletePost){
+if(!confirm("Delete this queued item?"))return;
+data.queue=data.queue.filter(p=>p.id!==b.dataset.deletePost);save();notify("Queue item deleted.");
+}
+if(b.dataset.copy){
+const p=data.queue.find(x=>x.id===b.dataset.copy);if(p)copyText(p.text);
+}
+if(b.dataset.done){
+const i=data.queue.findIndex(x=>x.id===b.dataset.done);if(i<0)return;
+const p=data.queue[i];
+if(!confirm("Only mark this as posted after you have actually published it on Facebook. Have you posted it?"))return;
+data.history.push({...p,status:"done",completedAt:new Date().toLocaleString()});
+data.queue.splice(i,1);save();notify("Post recorded in history.");
+}
+if(b.dataset.deleteTemplate){
+if(!confirm("Delete this template?"))return;
+data.templates=data.templates.filter(t=>t.id!==b.dataset.deleteTemplate);save();notify("Template deleted.");
+}
+if(b.dataset.useTemplate){
+const t=data.templates.find(x=>x.id===b.dataset.useTemplate);if(t){$("postText").value=t.content;go("composer");notify("Template inserted.");}
+}
+if(b.dataset.copyHistory){
+const h=data.history.find(x=>x.id===b.dataset.copyHistory);if(h)copyText(h.text);
+}
+});
+$("exportData").addEventListener("click",()=>{
+const blob=new Blob([JSON.stringify({format:"GroupPilot Personal Backup",version:1,exportedAt:new Date().toISOString(),data},null,2)],{type:"application/json"});
+const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="grouppilot-backup-"+new Date().toISOString().slice(0,10)+".json";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);notify("Backup export started.");
+});
+$("importButton").addEventListener("click",()=>$("importFile").click());
+$("importFile").addEventListener("change",async e=>{
+const file=e.target.files&&e.target.files[0];if(!file)return;
+try{
+const parsed=JSON.parse(await file.text());const incoming=parsed.data||parsed;
+if(!incoming||!Array.isArray(incoming.groups)||!Array.isArray(incoming.queue)||!Array.isArray(incoming.templates)||!Array.isArray(incoming.history))throw new Error("Invalid backup");
+if(!confirm("Importing replaces your current GroupPilot data. Export your current data first if you need it. Continue?"))return;
+data={groups:incoming.groups,queue:incoming.queue,templates:incoming.templates,history:incoming.history,drafts:Array.isArray(incoming.drafts)?incoming.drafts:[]};
+if(save())notify("Backup imported successfully.");
+}catch(err){notify("Import failed. Choose a valid GroupPilot JSON backup.")}finally{e.target.value=""}
+});
+$("clearData").addEventListener("click",()=>{
+if(!confirm("This permanently clears all GroupPilot data saved in this browser. Continue?"))return;
+if(!confirm("Final confirmation: clear all groups, queue items, templates, and history?"))return;
+data={...initial};localStorage.removeItem(KEY);render();notify("Local data cleared.");
+});
+render();
+})();
+</script></body>
+</html>
